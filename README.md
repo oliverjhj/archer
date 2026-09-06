@@ -3,7 +3,7 @@
 **Ask a sales database a question in English. Get the answer, and the SQL that produced it.**
 
 [![CI](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-109%20passing-brightgreen)](docs/testing.md)
+[![Tests](https://img.shields.io/badge/tests-113%20passing-brightgreen)](docs/testing.md)
 [![Execution accuracy](https://img.shields.io/badge/execution%20accuracy-100%25%20on%2033%20cases-blue)](docs/evals.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](backend/pyproject.toml)
 [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
@@ -46,7 +46,7 @@ its query is asking to be trusted without giving you any way to check it, and
   a boundary; SELECT-only enforcement and a read-only connection are.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
-- **Production practices**: 109 tests, four CI jobs, automated deployment,
+- **Production practices**: 113 tests, four CI jobs, automated deployment,
   non-root multi-stage container, scale-to-zero hosting.
 
 ## The number that matters
@@ -117,7 +117,7 @@ Requires an IBM Cloud API key and a watsonx.ai project. See
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 109 tests
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 113 tests
 python evals/run_evals.py                                          # accuracy
 ```
 
@@ -133,6 +133,7 @@ and needs live credentials.
 | [Evaluation](docs/evals.md) | How accuracy is measured, and the results |
 | [Security](docs/security.md) | Threat model, controls, and honest limitations |
 | [Testing](docs/testing.md) | What the tests cover - and what they missed |
+| [CI and automation](docs/ci.md) | What runs on every push, and how deployment works |
 | [Infrastructure](infrastructure/README.md) | Deployment, scaling and cost |
 
 ## Background

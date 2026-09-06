@@ -6,8 +6,7 @@ import react from '@vitejs/plugin-react';
 const BACKEND_TARGET = 'http://localhost:8080';
 
 // Paths proxied to the backend during local development so the frontend can be
-// developed same-origin. Live /api/ask integration lands in Phase 4C; the proxy
-// is configured now so no frontend change is needed then.
+// developed same-origin.
 const PROXIED_PATHS = [
   '/api',
   '/ask',
