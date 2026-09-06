@@ -1,6 +1,6 @@
 # Testing
 
-**109 unit tests**, run on every push and pull request.
+**113 unit tests**, run on every push and pull request.
 
 ```bash
 .venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q
