@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react';
+import { EXAMPLE_QUESTIONS } from '../lib/examples';
 import type { ConversationEntry } from '../types/api';
 import { AnswerItem } from './AnswerItem';
+import { ExampleQuestions } from './ExampleQuestions';
 
 interface AnswerWorkspaceProps {
   entries: ConversationEntry[];
+  busy: boolean;
+  onAsk: (question: string) => void;
 }
 
 // Scrollable list of question/answer exchanges, with an empty state.
-export function AnswerWorkspace({ entries }: AnswerWorkspaceProps) {
+export function AnswerWorkspace({ entries, busy, onAsk }: AnswerWorkspaceProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest exchange in view. An answer is often taller than the
@@ -36,11 +40,11 @@ export function AnswerWorkspace({ entries }: AnswerWorkspaceProps) {
             Enter a natural-language question below to explore the dataset.
             Answers appear here alongside the SQL that produced them.
           </p>
-          <ul className="archer-empty__examples">
-            <li>What was the total revenue in 2025?</li>
-            <li>Show me the top 5 customers by revenue</li>
-            <li>How many hardware deals were there last year?</li>
-          </ul>
+          <ExampleQuestions
+            questions={EXAMPLE_QUESTIONS.slice(0, 3)}
+            disabled={busy}
+            onAsk={onAsk}
+          />
           {/*
             Said up front rather than left to be discovered. The deployment
             runs at minimum scale zero, so the first question after a quiet

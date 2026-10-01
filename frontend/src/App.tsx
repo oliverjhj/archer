@@ -4,14 +4,14 @@ import { AppHeader } from './components/AppHeader';
 import { AppSideNav } from './components/AppSideNav';
 import { AskInput } from './components/AskInput';
 import { AnswerWorkspace } from './components/AnswerWorkspace';
-import { SchemaPanel } from './components/SchemaPanel';
+import { GuidePanel } from './components/GuidePanel';
 import { useAsk } from './hooks/useAsk';
 import { useTheme } from './hooks/useTheme';
 
 export function App() {
   const { entries, busy, submit, clear } = useAsk();
   const { theme, toggle } = useTheme();
-  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // g100 and g10 are Carbon's dark and light greyscale themes. Dark is the
   // default; the preference is shared with the login page so the two halves
@@ -21,14 +21,19 @@ export function App() {
   return (
     <Theme theme={carbonTheme} className="archer-theme">
       <AppHeader theme={theme} onToggleTheme={toggle} onClear={clear} />
-      <AppSideNav onOpenSchema={() => setSchemaOpen(true)} />
+      <AppSideNav onOpenGuide={() => setGuideOpen(true)} />
       <Content id="main-content" className="archer-content">
         <div className="archer-workspace">
-          <AnswerWorkspace entries={entries} />
+          <AnswerWorkspace entries={entries} busy={busy} onAsk={submit} />
           <AskInput busy={busy} onSubmit={submit} />
         </div>
       </Content>
-      <SchemaPanel open={schemaOpen} onClose={() => setSchemaOpen(false)} />
+      <GuidePanel
+        open={guideOpen}
+        busy={busy}
+        onClose={() => setGuideOpen(false)}
+        onAsk={submit}
+      />
     </Theme>
   );
 }
