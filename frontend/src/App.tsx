@@ -9,7 +9,7 @@ import { useAsk } from './hooks/useAsk';
 import { useTheme } from './hooks/useTheme';
 
 export function App() {
-  const { entries, busy, submit } = useAsk();
+  const { entries, busy, submit, clear } = useAsk();
   const { theme, toggle } = useTheme();
   const [schemaOpen, setSchemaOpen] = useState(false);
 
@@ -20,7 +20,7 @@ export function App() {
 
   return (
     <Theme theme={carbonTheme} className="archer-theme">
-      <AppHeader theme={theme} onToggleTheme={toggle} />
+      <AppHeader theme={theme} onToggleTheme={toggle} onClear={clear} />
       <AppSideNav onOpenSchema={() => setSchemaOpen(true)} />
       <Content id="main-content" className="archer-content">
         <div className="archer-workspace">
