@@ -1,7 +1,9 @@
 fastapi
 uvicorn
 pydantic
-langchain_ibm
+langchain_ibm>=1.1,<2
+langchain_core>=1.6,<2
+ibm_watsonx_ai>=1.7,<2
 slowapi
 python-multipart
 itsdangerous

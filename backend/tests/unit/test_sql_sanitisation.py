@@ -1,27 +1,28 @@
 """
-Unit tests for SQL sanitisation behaviour in archer.ai.sql_generator.
+Unit tests for SQL extraction in archer.ai.sql_generator.
 
-These tests exercise the sanitisation and extraction logic inside generate_sql()
-without calling any real LLM or network service.  The LLM argument is replaced
-with a MagicMock whose .invoke() method returns a controlled SQL string so that
-the post-LLM sanitisation code path is exercised in isolation.
+These exercise extract_sql() and generate_sql() without calling any real model:
+the model is a MagicMock whose .invoke() replies with controlled text.
 
-Sanitisation rules under test (sql_generator.py):
-  - The SELECT-line extractor: finds the first line containing "SELECT".
-  - The re.split sanitiser: splits on ;  #  --  /*  */  or a newline followed
-    by ATTACH / DETACH / PRAGMA (case-insensitive), then takes element [0].
+Extraction is a tidying step. It takes one statement out of a chat reply -
+fenced or not, on one line or several - and stops at the first semicolon,
+comment or backtick outside a quoted string. It is not the safety boundary:
+generated SQL is executed only through archer.db.query.run_select, whose
+engine-level restrictions are tested in test_query_guard.py.
 """
 
 import pytest
 from unittest.mock import MagicMock
 
-from archer.ai.sql_generator import generate_sql
+from langchain_core.messages import AIMessage
+
+from archer.ai.sql_generator import extract_sql, generate_sql
 
 
 def _mock_llm(sql_response: str) -> MagicMock:
-    """Return a MagicMock LLM whose .invoke() yields the given string."""
+    """Return a MagicMock chat model whose .invoke() replies with the given text."""
     llm = MagicMock()
-    llm.invoke.return_value = sql_response
+    llm.invoke.return_value = AIMessage(content=sql_response)
     return llm
 
 
@@ -29,152 +30,133 @@ SCHEMA = "customer_name, revenue"
 
 
 # ---------------------------------------------------------------------------
-# Extraction gate: no SELECT in LLM output -> empty string returned
+# generate_sql: the model is called once, and its reply is extracted
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 def test_no_select_in_response_returns_empty() -> None:
-    """LLM response with no SELECT line yields an empty SQL string."""
-    llm = _mock_llm("I cannot generate that query.")
-    sql, _ = generate_sql(llm, "some question", SCHEMA)
+    """A reply with no SELECT yields an empty SQL string."""
+    sql, _ = generate_sql(_mock_llm("I cannot generate that query."), "some question", SCHEMA)
     assert sql == ""
-
-
-# ---------------------------------------------------------------------------
-# Clean SELECT passes through unchanged
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 def test_clean_select_is_returned_unchanged() -> None:
-    """A well-formed SELECT statement is returned as-is."""
     raw = "SELECT customer_name, revenue FROM sales_data LIMIT 10"
-    sql, _ = generate_sql(_mock_llm(raw), "show me customers", SCHEMA)
+    sql, raw_reply = generate_sql(_mock_llm(raw), "show me customers", SCHEMA)
     assert sql == raw
-
-
-# ---------------------------------------------------------------------------
-# Semicolon injection: statement is truncated at the first semicolon
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_semicolon_truncates_at_first_statement() -> None:
-    """A semicolon causes the output to be truncated to the first statement."""
-    raw = "SELECT revenue FROM sales_data; DROP TABLE sales_data"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data"
-    assert "DROP" not in sql
-
-
-# ---------------------------------------------------------------------------
-# Hash comment injection
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_hash_comment_is_stripped() -> None:
-    """A hash character causes the output to be truncated at that point."""
-    raw = "SELECT revenue FROM sales_data # injected comment"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data"
-
-
-# ---------------------------------------------------------------------------
-# SQL line-comment injection (--)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_double_dash_comment_is_stripped() -> None:
-    """A double-dash SQL comment causes truncation at that point."""
-    raw = "SELECT revenue FROM sales_data -- injected"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data"
-
-
-# ---------------------------------------------------------------------------
-# Block comment injection (/* ... */)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_block_comment_open_is_stripped() -> None:
-    """An opening block-comment marker causes truncation."""
-    raw = "SELECT revenue FROM sales_data /* comment"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data"
-
-
-@pytest.mark.unit
-def test_block_comment_close_is_stripped() -> None:
-    """A closing block-comment marker causes truncation."""
-    raw = "SELECT revenue FROM sales_data */ trailing"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data"
-
-
-# ---------------------------------------------------------------------------
-# ATTACH / DETACH / PRAGMA on a new line after SELECT are blocked
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_attach_on_newline_is_stripped() -> None:
-    """ATTACH DATABASE on a new line after a SELECT is truncated."""
-    raw = "SELECT revenue FROM sales_data\nATTACH DATABASE 'evil.db' AS evil"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert "ATTACH" not in sql.upper()
-    assert sql.startswith("SELECT")
-
-
-@pytest.mark.unit
-def test_detach_on_newline_is_stripped() -> None:
-    """DETACH on a new line after a SELECT is truncated."""
-    raw = "SELECT revenue FROM sales_data\nDETACH evil"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert "DETACH" not in sql.upper()
-    assert sql.startswith("SELECT")
-
-
-@pytest.mark.unit
-def test_pragma_on_newline_is_stripped() -> None:
-    """PRAGMA on a new line after a SELECT is truncated."""
-    raw = "SELECT revenue FROM sales_data\nPRAGMA journal_mode=WAL"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert "PRAGMA" not in sql.upper()
-    assert sql.startswith("SELECT")
-
-
-# ---------------------------------------------------------------------------
-# Markdown code-fence markers are removed from the SELECT line
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_code_fence_prefix_is_stripped() -> None:
-    """A ```sql prefix before SELECT is removed during extraction."""
-    raw = "```sql SELECT revenue FROM sales_data LIMIT 5"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data LIMIT 5"
-
-
-@pytest.mark.unit
-def test_code_fence_suffix_is_stripped() -> None:
-    """A trailing ``` after SELECT is removed during extraction."""
-    raw = "SELECT revenue FROM sales_data LIMIT 5```"
-    sql, _ = generate_sql(_mock_llm(raw), "revenue", SCHEMA)
-    assert sql == "SELECT revenue FROM sales_data LIMIT 5"
-
-
-# ---------------------------------------------------------------------------
-# Edge case: empty string from LLM
-# ---------------------------------------------------------------------------
+    assert raw_reply == raw
 
 
 @pytest.mark.unit
 def test_empty_llm_response_returns_empty() -> None:
-    """An empty LLM response yields an empty SQL string."""
     sql, _ = generate_sql(_mock_llm(""), "anything", SCHEMA)
     assert sql == ""
+
+
+@pytest.mark.unit
+def test_model_is_called_once_with_chat_messages() -> None:
+    llm = _mock_llm("SELECT 1")
+    generate_sql(llm, "what is one?", SCHEMA)
+
+    assert llm.invoke.call_count == 1
+    messages = llm.invoke.call_args.args[0]
+    assert all(role in ("system", "user", "assistant") for role, _ in messages)
+    assert "what is one?" in messages[-1][1]
+
+
+@pytest.mark.unit
+def test_question_with_braces_renders() -> None:
+    """
+    Braces used to be escaped into the prompt and then rejected by the
+    renderer as unfilled placeholders, so any question containing one failed.
+    """
+    llm = _mock_llm("SELECT 1")
+    generate_sql(llm, "revenue for {weird} partner {{name}}", SCHEMA)
+    assert "{weird} partner {{name}}" in llm.invoke.call_args.args[0][-1][1]
+
+
+# ---------------------------------------------------------------------------
+# extract_sql: where a statement starts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_multi_line_sql_is_kept_whole() -> None:
+    raw = "SELECT customer_name,\n       SUM(revenue)\nFROM sales_data\nGROUP BY customer_name"
+    assert extract_sql(raw) == raw
+
+
+@pytest.mark.unit
+def test_fenced_sql_is_unwrapped() -> None:
+    raw = "Here you go:\n```sql\nSELECT revenue\nFROM sales_data\n```\nHope that helps."
+    assert extract_sql(raw) == "SELECT revenue\nFROM sales_data"
+
+
+@pytest.mark.unit
+def test_prose_before_the_query_is_skipped() -> None:
+    assert extract_sql("The query is SELECT revenue FROM sales_data") == "SELECT revenue FROM sales_data"
+
+
+@pytest.mark.unit
+def test_with_statement_is_accepted() -> None:
+    raw = "WITH t AS (SELECT revenue FROM sales_data) SELECT SUM(revenue) FROM t"
+    assert extract_sql(raw) == raw
+
+
+@pytest.mark.unit
+def test_unterminated_fence_is_tolerated() -> None:
+    assert extract_sql("```sql\nSELECT revenue FROM sales_data LIMIT 5") == (
+        "SELECT revenue FROM sales_data LIMIT 5"
+    )
+
+
+@pytest.mark.unit
+def test_trailing_fence_is_dropped() -> None:
+    assert extract_sql("SELECT revenue FROM sales_data LIMIT 5```") == (
+        "SELECT revenue FROM sales_data LIMIT 5"
+    )
+
+
+# ---------------------------------------------------------------------------
+# extract_sql: where a statement ends
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_semicolon_ends_the_statement() -> None:
+    sql = extract_sql("SELECT revenue FROM sales_data; DROP TABLE sales_data")
+    assert sql == "SELECT revenue FROM sales_data"
+    assert "DROP" not in sql
+
+
+@pytest.mark.unit
+def test_double_dash_comment_ends_the_statement() -> None:
+    assert extract_sql("SELECT revenue FROM sales_data -- injected") == "SELECT revenue FROM sales_data"
+
+
+@pytest.mark.unit
+def test_block_comment_ends_the_statement() -> None:
+    assert extract_sql("SELECT revenue FROM sales_data /* comment") == "SELECT revenue FROM sales_data"
+
+
+@pytest.mark.unit
+def test_terminators_inside_a_string_literal_are_kept() -> None:
+    """
+    The old extractor cut at every ';', '#' and '--', so a filter on a name
+    containing one of them was truncated into a broken query.
+    """
+    raw = "SELECT revenue FROM sales_data WHERE customer_name = 'Smith #1; Ltd -- UK'"
+    assert extract_sql(raw) == raw
+
+
+@pytest.mark.unit
+def test_escaped_quote_inside_a_literal_is_handled() -> None:
+    raw = "SELECT revenue FROM sales_data WHERE customer_name = 'O''Brien; Sons'"
+    assert extract_sql(raw + "; DROP TABLE x") == raw
+
+
+@pytest.mark.unit
+def test_text_without_a_statement_returns_empty() -> None:
+    assert extract_sql("No query here, sorry.") == ""

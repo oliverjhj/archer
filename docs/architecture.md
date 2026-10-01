@@ -35,8 +35,10 @@ One container, one database file, three prompts, and a model call.
 3. The **classifier** decides: data question or conversation.
 4. Data questions go to the **SQL generator**, which is given the live schema
    read from the database rather than a hardcoded list.
-5. The generated SQL is checked, executed read-only, capped at 100 rows, and
-   formatted as Markdown.
+5. The generated SQL is executed through `run_select`: a read-only connection
+   whose SQLite authorizer permits reading `sales_data` and nothing else, one
+   statement, a deadline and a 100-row cap. The result is formatted as
+   Markdown.
 6. Conversational questions go to the **chat prompt** and never see the schema.
 
 Model calls are dispatched with `asyncio.to_thread`. The watsonx SDK is
@@ -96,10 +98,10 @@ backend/archer/
 │   ├── auth_routes.py     /login, CSRF, cookie issuance
 │   └── page_routes.py     app shell and legacy redirects
 ├── ai/
-│   ├── llm.py             per-task watsonx clients
+│   ├── llm.py             per-task watsonx chat clients
 │   ├── prompts.py         prompt loading from prompts/*.md
 │   ├── classifier.py      routing
-│   ├── sql_generator.py   SQL generation and sanitisation
+│   ├── sql_generator.py   SQL generation and extraction
 │   └── chat.py            conversational replies
 ├── auth/                  JWT and CSRF
 ├── core/
@@ -107,7 +109,9 @@ backend/archer/
 │   ├── limiter.py         per-IP rate limiting
 │   ├── paths.py           path resolution for both layouts
 │   └── security_headers.py
-└── db/database.py         dataset verification
+└── db/
+    ├── database.py        dataset verification, schema and date range
+    └── query.py           run_select: the only way generated SQL runs
 ```
 
 Prompts live in [`prompts/`](../prompts) as versioned Markdown, not as string

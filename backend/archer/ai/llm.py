@@ -1,8 +1,9 @@
 import os
 from functools import lru_cache
+from typing import Sequence
 
 from pydantic import SecretStr
-from langchain_ibm import WatsonxLLM
+from langchain_ibm import ChatWatsonx
 
 # Overridable so the evaluation suite can measure a different model without
 # editing code. The default is the model the deployment actually runs.
@@ -15,63 +16,63 @@ DEFAULT_URL = "https://eu-gb.ml.cloud.ibm.com"
 #   the classifier returns "1" or "2" - one token - and was allocated 200
 #   the SQL generator emits queries that can run past 200 and be truncated
 #
-# Sizing them separately costs nothing, because max_new_tokens is a ceiling
-# rather than an allocation, and removes both problems.
-CLASSIFIER_MAX_TOKENS = 5
-SQL_MAX_TOKENS = 400
-CHAT_MAX_TOKENS = 300
+# Sizing them separately costs nothing, because the limit is a ceiling rather
+# than an allocation, and removes both problems.
+_MAX_TOKENS = {
+    "classifier": 5,
+    "sql": 400,
+    "chat": 300,
+}
+
+# A message as LangChain accepts it: (role, text), role being "system", "user"
+# or "assistant".
+Message = tuple[str, str]
 
 
-def _model_id() -> str:
-    return os.environ.get("WATSONX_MODEL_ID", "").strip() or DEFAULT_MODEL_ID
-
-
-def _build(max_new_tokens: int) -> WatsonxLLM:
-    return WatsonxLLM(
-        model_id=_model_id(),
-        url=SecretStr(os.environ.get("WATSONX_URL", "").strip() or DEFAULT_URL),
-        project_id=os.environ.get("PROJECT_ID", "").strip(),
-        apikey=SecretStr(os.environ.get("IBM_API_KEY", "").strip()),
-        params={"decoding_method": "greedy", "max_new_tokens": max_new_tokens},
-    )
+def _model_id(task: str) -> str:
+    """
+    Resolve the model for a task: a per-task override, then the global one,
+    then the default. Per-task overrides let the evaluation suite measure a
+    larger model on one step without changing the others.
+    """
+    per_task = os.environ.get(f"WATSONX_MODEL_ID_{task.upper()}", "").strip()
+    return per_task or os.environ.get("WATSONX_MODEL_ID", "").strip() or DEFAULT_MODEL_ID
 
 
 # Cached because building a client per request is pure overhead: the
 # credentials and endpoint do not change while the process runs.
-@lru_cache(maxsize=1)
-def classifier_llm() -> WatsonxLLM:
-    """Client for routing. Needs one token, so it is allowed five."""
-    return _build(CLASSIFIER_MAX_TOKENS)
+@lru_cache(maxsize=None)
+def _build(task: str, model_id: str) -> ChatWatsonx:
+    return ChatWatsonx(
+        model_id=model_id,
+        url=SecretStr(os.environ.get("WATSONX_URL", "").strip() or DEFAULT_URL),
+        project_id=os.environ.get("PROJECT_ID", "").strip(),
+        api_key=SecretStr(os.environ.get("IBM_API_KEY", "").strip()),
+        # The chat API has no "greedy" decoding mode; temperature 0 is its
+        # equivalent, and the evaluation suite depends on repeatable output.
+        temperature=0,
+        max_completion_tokens=_MAX_TOKENS[task],
+    )
 
 
-@lru_cache(maxsize=1)
-def sql_llm() -> WatsonxLLM:
-    """Client for SQL generation. Needs room for a complete query."""
-    return _build(SQL_MAX_TOKENS)
-
-
-@lru_cache(maxsize=1)
-def chat_llm() -> WatsonxLLM:
-    """Client for conversational replies."""
-    return _build(CHAT_MAX_TOKENS)
-
-
-_BY_TASK = {
-    "classifier": classifier_llm,
-    "sql": sql_llm,
-    "chat": chat_llm,
-}
-
-
-def create_llm(task: str = "sql") -> WatsonxLLM:
+def create_llm(task: str = "sql", model_id: str | None = None) -> ChatWatsonx:
     """
-    Return the client configured for a task.
+    Return the chat client configured for a task.
 
-    A single entry point rather than three imported factories, because it is
-    the seam the tests and the evaluation harness already patch. Defaulting to
-    "sql" keeps every existing caller working unchanged.
+    A single entry point rather than one factory per task, because it is the
+    seam the tests and the evaluation harness patch. Defaulting to "sql" keeps
+    every existing caller working unchanged.
     """
-    try:
-        return _BY_TASK[task]()
-    except KeyError:
-        raise ValueError(f"Unknown LLM task {task!r}; expected one of {sorted(_BY_TASK)}") from None
+    if task not in _MAX_TOKENS:
+        raise ValueError(f"Unknown LLM task {task!r}; expected one of {sorted(_MAX_TOKENS)}")
+    return _build(task, model_id or _model_id(task))
+
+
+def complete(llm, messages: Sequence[Message]) -> str:
+    """
+    Send messages to a chat model and return its reply as text.
+
+    The only place that knows a chat model answers with a message object
+    rather than a string, so every caller deals in plain text.
+    """
+    return str(llm.invoke(list(messages)).content).strip()

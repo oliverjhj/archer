@@ -14,6 +14,8 @@ from ..ai.chat import generate_chat_response
 from ..auth.jwt import get_current_user
 from ..core.limiter import limiter
 from ..core.usage import budget, BUDGET_EXHAUSTED_MESSAGE
+from ..db.database import database_path, schema_columns
+from ..db.query import run_select
 
 router = APIRouter()
 
@@ -31,12 +33,15 @@ async def answer_question(question: Union[str, List[str]]) -> dict:
     Authentication is deliberately the caller's job. This function assumes the
     caller is already authorised and performs no auth of its own.
     """
-    user_query = question
-    if isinstance(user_query, list):
-        user_query = user_query if user_query else ""
+    # A list is joined rather than passed through: str() of a list would hand
+    # the model "['a', 'b']", brackets and quotes included.
+    user_query = " ".join(question) if isinstance(question, list) else question
 
-    # Issue #3: Escape user input to prevent prompt injection
-    user_query_escaped = str(user_query).replace('{', '{{').replace('}', '}}').replace('"""', '').replace("'''", '')
+    # No escaping. Braces used to be doubled here, which made every question
+    # containing one fail: the prompt renderer mistook them for unfilled
+    # placeholders. Substitution is a single pass that never re-reads what a
+    # user typed, and generated SQL is executed only through run_select, so
+    # the protection lives where it can be enforced rather than in the text.
 
     clean_sql = "N/A - General Conversation"
 
@@ -55,108 +60,94 @@ async def answer_question(question: Union[str, List[str]]) -> dict:
         # under which nothing else on the process is served. asyncio.to_thread
         # moves it to a worker thread so concurrent requests are unaffected.
         route_decision = await asyncio.to_thread(
-            classify_query, create_llm("classifier"), user_query_escaped
+            classify_query, create_llm("classifier"), user_query
         )
 
         # --- ROUTE A: DATA QUERY (SQL Generation) ---
         if route_decision == "1":
-            # Issue #5: Check database file exists before attempting connection
-            db_path = os.path.abspath("sales.db")
+            db_path = database_path()
             if not os.path.exists(db_path):
                 logging.error("Database file not found at %s - the image was built incorrectly", db_path)
                 return {"answer": "Database temporarily unavailable. Please contact support."}
-            
-            # Issue #1: Initialise connection variable for proper cleanup
-            db_uri = f"file:{db_path}?mode=ro"
-            conn = None
-            try:
-                conn = sqlite3.connect(db_uri, uri=True)
-                cursor = conn.cursor()
-                
-                cursor.execute("PRAGMA table_info(sales_data)")
-                columns_info = cursor.fetchall()
-                column_names = [col[1] for col in columns_info]
-                schema_text = ", ".join(column_names)
-                
-                clean_sql, generated_response = await asyncio.to_thread(
-                    generate_sql, create_llm("sql"), user_query_escaped, schema_text
-                )
-                
-                if not clean_sql:
-                    return {"answer": f"I couldn't generate a valid SQL query. (AI said: {generated_response})"}
-                
-                # Issue #4: Enhanced SQL sanitisation to block non-SELECT queries
-                if not clean_sql.upper().startswith('SELECT'):
-                    logging.error(f"Non-SELECT query blocked: {clean_sql}")
-                    return {"answer": "I can only execute SELECT queries for security reasons."}
-                
-                cursor.execute(clean_sql)
-                db_result = cursor.fetchmany(101)
-                # Fix: Extract column names as strings from cursor.description tuples
-                returned_columns = [description[0] for description in cursor.description]
 
-                # --- THE FORMATTING FIXES ---
+            schema_text = ", ".join(schema_columns())
+
+            clean_sql, generated_response = await asyncio.to_thread(
+                generate_sql, create_llm("sql"), user_query, schema_text
+            )
+
+            if not clean_sql:
+                return {"answer": f"I couldn't generate a valid SQL query. (AI said: {generated_response})"}
+
+            # Defence in depth: run_select refuses anything else too, but
+            # this keeps the clearer message for the obvious case.
+            if not re.match(r"^\s*(SELECT|WITH)\b", clean_sql, re.IGNORECASE):
+                logging.error(f"Non-SELECT query blocked: {clean_sql}")
+                return {"answer": "I can only execute SELECT queries for security reasons."}
+
+            # The only execution path for generated SQL: read-only, an
+            # authorizer limiting it to reading sales_data, a deadline and
+            # a row cap. See archer.db.query.
+            result = await asyncio.to_thread(run_select, clean_sql)
+            db_result = result.rows
+            returned_columns = result.columns
+
+            # --- THE FORMATTING FIXES ---
+
+            # 1. THE TRUNCATION WARNING FIX
+            truncated_msg = ""
+            if result.truncated:
+                truncated_msg = "\n\n*(Note: Displaying the maximum of 100 rows to maintain performance.)*"
+
+            if not db_result or len(db_result) == 0 or db_result is None:
+                clean_answer = f"I couldn't find any data matching that request. \n\n*(Query attempted: {clean_sql})*"
                 
-                # 1. THE TRUNCATION WARNING FIX
-                truncated_msg = ""
-                if len(db_result) >= 100:
-                    db_result = db_result[:100]
-                    truncated_msg = "\n\n*(Note: Displaying the maximum of 100 rows to maintain performance.)*"
+            # 2. THE SINGLE VALUE DECIMAL FIX
+            elif len(db_result) == 1 and len(db_result[0]) == 1:
+                final_value = db_result[0][0]
+                col_name = returned_columns[0].lower()
                 
-                if not db_result or len(db_result) == 0 or db_result is None:
-                    clean_answer = f"I couldn't find any data matching that request. \n\n*(Query attempted: {clean_sql})*"
-                    
-                # 2. THE SINGLE VALUE DECIMAL FIX
-                elif len(db_result) == 1 and len(db_result[0]) == 1:
-                    final_value = db_result[0][0]
-                    col_name = returned_columns[0].lower()
-                    
-                    if 'revenue' in col_name and isinstance(final_value, (int, float)):
-                        final_value = f"£{final_value:,.2f}"
-                    elif isinstance(final_value, (int, float)):
-                        if final_value == int(final_value):
-                            final_value = f"{int(final_value):,}"
-                        else:
-                            final_value = f"{final_value:,.2f}"
-                            
-                    clean_answer = f"Based on the data, the answer is: **{final_value}** \n\n*(SQL used: {clean_sql})*"
-                    
-                # 3. THE TABLE QUANTITY DECIMAL FIX
-                else:
-                    table_md = f"| {' | '.join(returned_columns)} |\n"
-                    table_md += f"|{'|'.join(['---'] * len(returned_columns))}|\n"
-                    for row in db_result:
-                        formatted_row = []
-                        for col_idx, val in enumerate(row):
-                            col_name = returned_columns[col_idx].lower()
-                            
-                            if 'revenue' in col_name and isinstance(val, (int, float)):
-                                formatted_row.append(f"£{val:,.2f}")
-                            elif 'quantity' in col_name and isinstance(val, (int, float)):
+                if 'revenue' in col_name and isinstance(final_value, (int, float)):
+                    final_value = f"£{final_value:,.2f}"
+                elif isinstance(final_value, (int, float)):
+                    if final_value == int(final_value):
+                        final_value = f"{int(final_value):,}"
+                    else:
+                        final_value = f"{final_value:,.2f}"
+                        
+                clean_answer = f"Based on the data, the answer is: **{final_value}** \n\n*(SQL used: {clean_sql})*"
+                
+            # 3. THE TABLE QUANTITY DECIMAL FIX
+            else:
+                table_md = f"| {' | '.join(returned_columns)} |\n"
+                table_md += f"|{'|'.join(['---'] * len(returned_columns))}|\n"
+                for row in db_result:
+                    formatted_row = []
+                    for col_idx, val in enumerate(row):
+                        col_name = returned_columns[col_idx].lower()
+                        
+                        if 'revenue' in col_name and isinstance(val, (int, float)):
+                            formatted_row.append(f"£{val:,.2f}")
+                        elif 'quantity' in col_name and isinstance(val, (int, float)):
+                            formatted_row.append(f"{int(val):,}")
+                        elif isinstance(val, (int, float)):
+                            if val == int(val):
                                 formatted_row.append(f"{int(val):,}")
-                            elif isinstance(val, (int, float)):
-                                if val == int(val):
-                                    formatted_row.append(f"{int(val):,}")
-                                else:
-                                    formatted_row.append(f"{val:,.2f}")
                             else:
-                                clean_text = str(val).replace('\n', ', ').replace('\r', '')
-                                formatted_row.append(clean_text)
-                                
-                        table_md += f"| {' | '.join(formatted_row)} |\n"
-                    clean_answer = f"Here is the data you requested:\n\n{table_md}{truncated_msg}\n*(SQL used: {clean_sql})*"
-                    
-                return {"answer": clean_answer}
-            
-            # Issue #1: Ensure database connection is always closed
-            finally:
-                if conn:
-                    conn.close()
+                                formatted_row.append(f"{val:,.2f}")
+                        else:
+                            clean_text = str(val).replace('\n', ', ').replace('\r', '')
+                            formatted_row.append(clean_text)
+                            
+                    table_md += f"| {' | '.join(formatted_row)} |\n"
+                clean_answer = f"Here is the data you requested:\n\n{table_md}{truncated_msg}\n*(SQL used: {clean_sql})*"
+                
+            return {"answer": clean_answer}
 
         # --- ROUTE B: GENERAL CHAT (Persona Injected) ---
         else:
             chat_response = await asyncio.to_thread(
-                generate_chat_response, create_llm("chat"), user_query_escaped
+                generate_chat_response, create_llm("chat"), user_query
             )
             return {"answer": chat_response}
             

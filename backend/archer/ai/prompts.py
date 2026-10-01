@@ -16,6 +16,7 @@ to collide with, which matters when the text being substituted is user input.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -58,18 +59,55 @@ def load_prompt(name: str) -> str:
     """
     Read a prompt by name, without its front matter.
 
-    Trailing whitespace is preserved deliberately, and this is not a detail.
-    The SQL prompt ends with the user's question followed by a newline, and
-    that newline is what tells the model to start a new line - with SQL on it.
-    Stripping it made the model continue the question instead, and the suite
-    went from 89% to 11% with every case reporting "no SQL produced". Only
-    leading newlines left over from the front matter delimiter are removed.
+    Trailing whitespace is preserved. It mattered under the text-generation
+    API, where the SQL prompt's final newline told the model to start a new
+    line with SQL on it - stripping it once took the suite from 89% to 11%.
+    The chat API wraps each message in the model's own template, so it no
+    longer matters, but there is no reason to alter what the file says.
 
     Cached: prompts do not change while the process runs, and re-reading a file
     on every request would put disk I/O in the path of every question.
     """
     path = PROMPTS_DIR / f"{name}.md"
     return _strip_front_matter(path.read_text(encoding="utf-8")).lstrip("\n")
+
+
+@lru_cache(maxsize=None)
+def prompt_meta(name: str) -> dict[str, str]:
+    """
+    The simple "key: value" lines of a prompt's front matter - in practice its
+    name, version and date, which the evaluation suite records with each run
+    so a change in accuracy can be traced to a change in a prompt.
+    """
+    text = (PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        return {}
+    meta: dict[str, str] = {}
+    for line in text.split("---", 2)[1].splitlines():
+        match = re.match(r"^([a-z_]+):\s*(\S.*)$", line)
+        if match:
+            meta[match.group(1)] = match.group(2).strip()
+    return meta
+
+
+_PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+_ROLE_MARKER = re.compile(r"<!--\s*role:\s*(system|user|assistant)\s*-->")
+
+
+def _substitute(name: str, template: str, values: dict[str, str]) -> str:
+    """
+    Fill {{PLACEHOLDER}} tokens in one pass over the template.
+
+    The check for unfilled placeholders is made against the template, not the
+    result. Checking the result made any question containing a brace fail,
+    because the user's own text was mistaken for an unfilled placeholder. One
+    pass also means a value is never itself scanned for placeholders, so text
+    a user types cannot pull another value into the prompt.
+    """
+    missing = sorted(set(_PLACEHOLDER.findall(template)) - set(values))
+    if missing:
+        raise ValueError(f"Unsubstituted placeholder in prompt '{name}': {missing}")
+    return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)
 
 
 def render(name: str, **values: str) -> str:
@@ -80,12 +118,38 @@ def render(name: str, **values: str) -> str:
     model with a literal {{USER_QUERY}} in it is a bug that produces confident
     nonsense rather than an error, so it is worth failing loudly instead.
     """
-    text = load_prompt(name)
-    for key, value in values.items():
-        text = text.replace("{{" + key + "}}", value)
+    return _substitute(name, load_prompt(name), values)
 
-    if "{{" in text:
-        leftover = text[text.index("{{") : text.index("{{") + 40]
-        raise ValueError(f"Unsubstituted placeholder in prompt '{name}': {leftover!r}")
 
-    return text
+def render_messages(name: str, **values: str) -> list[tuple[str, str]]:
+    """
+    Load a prompt as chat messages: a list of (role, text) pairs.
+
+    A prompt marks where each message starts with an HTML comment such as
+    <!-- role: system -->, which keeps the file readable as Markdown. A prompt
+    with no markers is sent as a single user message.
+
+    The prompt is split into messages before values are substituted, so a
+    question containing a role marker stays text inside its own message and
+    can never start a new one.
+    """
+    body = load_prompt(name)
+    pieces = _ROLE_MARKER.split(body)
+
+    # split() with one capture group gives [preamble, role, text, role, text...]
+    messages: list[tuple[str, str]] = []
+    if pieces[0].strip():
+        messages.append(("user", pieces[0]))
+    for role, text in zip(pieces[1::2], pieces[2::2]):
+        messages.append((role, text))
+
+    if not messages:
+        raise ValueError(f"Prompt '{name}' is empty")
+
+    # Placeholders are checked across the whole prompt, so a value supplied
+    # for one message is not reported missing from another.
+    missing = sorted(set(_PLACEHOLDER.findall(body)) - set(values))
+    if missing:
+        raise ValueError(f"Unsubstituted placeholder in prompt '{name}': {missing}")
+
+    return [(role, _substitute(name, text, values).strip()) for role, text in messages]

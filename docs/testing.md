@@ -28,7 +28,9 @@ convenience:
 
 | Area | What is asserted |
 |---|---|
-| SQL sanitisation | Non-`SELECT` refused, statement splitting, blocked keywords |
+| SQL extraction | Multi-line and fenced replies, `WITH`, statement ends outside quoted strings, braces in questions |
+| Query guard | Writes, `ATTACH`, `PRAGMA`, internal tables, `load_extension` and second statements refused by SQLite; runaway queries interrupted; row cap |
+| Prompts | Role markers become chat messages; a marker in user text cannot start one; single-pass substitution; front matter never sent |
 | JWT | Payload, expiry, tampering, wrong signing key |
 | CSRF | Generation, validation, tampered tokens |
 | Auth routes | `/login` GET and POST, cookie issuance, bad credentials |

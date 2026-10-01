@@ -9,25 +9,38 @@ does.
 
 **The prompt is not a security boundary and is not treated as one.**
 
-User input is escaped before it reaches a prompt: braces are doubled and
-triple-quote sequences removed, so input cannot terminate or restructure the
-template. That is a mitigation and it will not hold against a determined
-attacker.
+User text is placed into a prompt in a single substitution pass, after the
+prompt has been split into its chat messages, so a question cannot create a
+new message or pull another value into the prompt. That keeps the prompt's
+structure intact. It does not stop a question from asking the model to do
+something else, and nothing at the prompt level can.
 
-Everything that actually protects the database is downstream of the model:
+Earlier versions doubled braces in the question as an "escape". It protected
+nothing, and it broke every question containing a brace, because the renderer
+then mistook the user's text for an unfilled placeholder.
+
+Everything that actually protects the database is downstream of the model, in
+`backend/archer/db/query.py`, which is the only way generated SQL is executed:
 
 | Control | Effect |
 |---|---|
-| **SELECT-only enforcement** | Generated SQL not starting with `SELECT` is refused before execution |
-| **Statement splitting** | Split on `;`, `--`, `#`, `/* */` - only the first statement can run |
-| **Blocked keywords** | `ATTACH`, `DETACH`, `PRAGMA` |
 | **Read-only connection** | Opened with `file:...?mode=ro`; SQLite refuses writes at the driver |
-| **Row cap** | `fetchmany(101)`, truncated to 100 |
+| **Authorizer** | SQLite's own authorizer permits reading and nothing else: no `PRAGMA`, `ATTACH`, `load_extension`, writes, or reads of its internal `sqlite_*` tables - which leaves `sales_data` as the only table there is |
+| **One statement** | Python's `sqlite3` refuses a string containing a second statement |
+| **SELECT-only gate** | Text not starting with `SELECT` or `WITH` is refused before it reaches SQLite |
+| **Deadline** | A progress handler interrupts any query still running after 5 seconds |
+| **Row cap** | At most 100 rows are returned, with a flag when there were more |
 | **Synthetic data** | There is nothing confidential to exfiltrate |
 
+These are enforced by the database engine rather than by inspecting the query
+text, which matters in both directions. A query that slips past a text check
+still cannot write, attach or read outside the table; and a legitimate query
+containing `;` or `--` inside a quoted name is no longer cut in half by a
+regex. `backend/tests/unit/test_query_guard.py` hands `run_select` hostile
+queries directly, as if every earlier check had missed them.
+
 An injection that persuades the model to emit `DROP TABLE` produces a refused
-query and a log line. One that gets past the keyword check still meets a
-read-only connection. The defence is layered because the first layer is the
+query and a log line. The defence is layered because the first layer is the
 one made of natural language.
 
 ## Authentication

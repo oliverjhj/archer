@@ -30,6 +30,12 @@ not what was asked for either.
 Routing is graded separately. Sending a greeting to the SQL generator wastes a
 call and produces nonsense, so the classifier is measured on its own.
 
+The suite runs the application's own code, not a copy of it: models come from
+archer.ai.llm.create_llm and generated SQL executes through
+archer.db.query.run_select, the same guarded path the demo uses. Token usage
+and the version of each prompt are recorded with every run, so a change in
+accuracy or cost can be traced to the change that caused it.
+
 Usage
 -----
     python evals/run_evals.py
@@ -54,33 +60,29 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 import yaml  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
-from pydantic import SecretStr  # noqa: E402
-from langchain_ibm import WatsonxLLM  # noqa: E402
+from langchain_core.callbacks import get_usage_metadata_callback  # noqa: E402
 
 from archer.ai.classifier import classify_query  # noqa: E402
+from archer.ai.llm import DEFAULT_MODEL_ID, create_llm  # noqa: E402
+from archer.ai.prompts import prompt_meta  # noqa: E402
 from archer.ai.sql_generator import generate_sql  # noqa: E402
+from archer.db.query import run_select  # noqa: E402
 
-DEFAULT_MODEL = "mistralai/mistral-small-3-1-24b-instruct-2503"
-WATSONX_URL = "https://eu-gb.ml.cloud.ibm.com"
-
-
-def build_llm(model_id: str, max_new_tokens: int) -> WatsonxLLM:
-    """Construct an LLM against watsonx, matching how the application does it."""
-    return WatsonxLLM(
-        model_id=model_id,
-        url=SecretStr(WATSONX_URL),
-        project_id=os.environ.get("PROJECT_ID", "").strip(),
-        apikey=SecretStr(os.environ.get("IBM_API_KEY", "").strip()),
-        params={"decoding_method": "greedy", "max_new_tokens": max_new_tokens},
-    )
+PROMPTS = ("classifier", "sql_generator", "chat")
 
 
-def run_sql(conn: sqlite3.Connection, sql: str) -> tuple[list[tuple] | None, str | None]:
-    """Execute a query read-only. Returns (rows, error)."""
+def run_generated(sql: str, database: str) -> tuple[list[tuple] | None, str | None]:
+    """Execute generated SQL exactly as the application does. Returns (rows, error)."""
     try:
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        return cursor.fetchmany(200), None
+        return run_select(sql, max_rows=200, db_path=database).rows, None
+    except sqlite3.Error as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def run_reference(conn: sqlite3.Connection, sql: str) -> tuple[list[tuple] | None, str | None]:
+    """Execute a reference query, which is trusted, on a plain read-only connection."""
+    try:
+        return conn.execute(sql).fetchmany(200), None
     except sqlite3.Error as exc:
         return None, f"{type(exc).__name__}: {exc}"
 
@@ -113,8 +115,9 @@ def value_multiset(rows: list[tuple]) -> set:
 def grade_case(
     case: dict,
     conn: sqlite3.Connection,
-    classifier_llm: WatsonxLLM,
-    sql_llm: WatsonxLLM,
+    database: str,
+    classifier_llm,
+    sql_llm,
     schema_text: str,
 ) -> dict:
     """Run one case end to end and return a result record."""
@@ -163,14 +166,14 @@ def grade_case(
         result.update(sql_valid=False, exact_match=False, value_match=False, error="no SQL produced")
         return result
 
-    actual_rows, actual_error = run_sql(conn, generated_sql)
+    actual_rows, actual_error = run_generated(generated_sql, database)
     if actual_error is not None:
         result.update(sql_valid=False, exact_match=False, value_match=False, error=actual_error)
         return result
 
     result["sql_valid"] = True
 
-    expected_rows, expected_error = run_sql(conn, case["expected_sql"])
+    expected_rows, expected_error = run_reference(conn, case["expected_sql"])
     if expected_error is not None:
         # The reference query is wrong, not the model. Say so loudly rather
         # than silently scoring the model against a broken baseline.
@@ -205,6 +208,7 @@ def summarise(results: list[dict]) -> dict:
         bucket["accuracy"] = pct(bucket["exact"], bucket["total"])
 
     latencies = [r["seconds"] for r in results if "seconds" in r]
+    input_tokens = [r["input_tokens"] for r in results if "input_tokens" in r]
 
     return {
         "cases_total": len(results),
@@ -215,13 +219,20 @@ def summarise(results: list[dict]) -> dict:
         "execution_accuracy": pct(exact, len(data_cases)),
         "value_accuracy": pct(value, len(data_cases)),
         "median_seconds": round(statistics.median(latencies), 2) if latencies else 0.0,
+        "total_input_tokens": sum(input_tokens),
+        "total_output_tokens": sum(r.get("output_tokens", 0) for r in results),
+        "median_input_tokens_data": (
+            statistics.median([r["input_tokens"] for r in data_cases if "input_tokens" in r])
+            if data_cases
+            else 0
+        ),
         "by_category": by_category,
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate the Archer text-to-SQL pipeline.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="watsonx model id to evaluate.")
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="watsonx model id to evaluate.")
     parser.add_argument("--cases", default=str(Path(__file__).parent / "cases.yaml"))
     parser.add_argument("--database", default=str(REPO_ROOT / "sales.db"))
     parser.add_argument("--output", default=None, help="Write the full JSON record here.")
@@ -242,18 +253,21 @@ def main() -> int:
         row[1] for row in conn.execute("PRAGMA table_info(sales_data)").fetchall()
     )
 
-    # The classifier only ever needs one or two tokens; the SQL generator needs
-    # room for a full query. Using one config for both wastes tokens on every
-    # classification and is one of the issues this phase closes.
-    classifier_llm = build_llm(args.model, max_new_tokens=5)
-    sql_llm = build_llm(args.model, max_new_tokens=400)
+    # The same clients the application builds, token budgets included.
+    classifier_llm = create_llm("classifier", model_id=args.model)
+    sql_llm = create_llm("sql", model_id=args.model)
+    prompt_versions = {name: prompt_meta(name).get("version", "?") for name in PROMPTS}
 
     print(f"model: {args.model}")
+    print(f"prompts: {prompt_versions}")
     print(f"cases: {len(cases)}\n")
 
     results = []
     for index, case in enumerate(cases, start=1):
-        record = grade_case(case, conn, classifier_llm, sql_llm, schema_text)
+        with get_usage_metadata_callback() as usage:
+            record = grade_case(case, conn, args.database, classifier_llm, sql_llm, schema_text)
+        record["input_tokens"] = sum(u.get("input_tokens", 0) for u in usage.usage_metadata.values())
+        record["output_tokens"] = sum(u.get("output_tokens", 0) for u in usage.usage_metadata.values())
         results.append(record)
 
         if case["route"] == "chat":
@@ -280,13 +294,17 @@ def main() -> int:
     print(f"Execution accuracy  {summary['execution_accuracy']}%")
     print(f"Value accuracy      {summary['value_accuracy']}%")
     print(f"Median latency      {summary['median_seconds']}s")
+    print(f"Tokens              {summary['total_input_tokens']:,} in, {summary['total_output_tokens']:,} out")
     print("=" * 62)
     for name, bucket in sorted(summary["by_category"].items()):
         print(f"  {name:<14} {bucket['accuracy']:>5}%  ({bucket['exact']}/{bucket['total']})")
 
     if args.output:
         Path(args.output).write_text(
-            json.dumps({"model": args.model, "summary": summary, "results": results}, indent=2),
+            json.dumps(
+                {"model": args.model, "prompts": prompt_versions, "summary": summary, "results": results},
+                indent=2,
+            ),
             encoding="utf-8",
         )
         print(f"\nWrote {args.output}")
