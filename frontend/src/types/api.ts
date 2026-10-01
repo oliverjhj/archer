@@ -1,19 +1,66 @@
 // Shared types describing the contract with the backend ask endpoint.
-// The live request/response shapes mirror the existing FastAPI POST /ask:
-//   request:  { "question": string }   (backend also accepts string[])
-//   response: { "answer": string }     (a Markdown string)
-// These types are used by the API skeletons and the UI state today; the live
-// call is wired in Phase 4C via the future authenticated /api/ask proxy.
+//
+//   request:  { "question": string }        (the backend also accepts string[])
+//   response: { "answer": string,           Markdown, unchanged for /ask callers
+//               "turn": Turn }              the structured record this app renders
+//
+// The structured turn is the source of truth for rendering. The Markdown answer
+// is kept for webhook callers and as a fallback, parsed by lib/answer.ts.
 
 export interface AskRequest {
   question: string;
 }
 
-export interface AskResponse {
-  answer: string;
+/** One earlier exchange as carried forward for context. Built by the server. */
+export interface HistoryTurn {
+  question: string;
+  interpreted: string | null;
+  sql: string | null;
+  columns: string[];
+  rows: unknown[][];
+  answer: string | null;
 }
 
-export type AskStatus = 'idle' | 'loading' | 'success' | 'error';
+export type PartStatus =
+  | 'ok'
+  | 'empty'
+  | 'no_sql'
+  | 'blocked'
+  | 'sql_error'
+  | 'unavailable'
+  | 'model_error';
+
+/** One answer within a turn: a data result or a piece of text. */
+export interface Part {
+  type: 'data' | 'chat';
+  question: string;
+  status: PartStatus;
+  /** The sentence a person reads first. Always present for a finished part. */
+  text: string | null;
+  sql: string | null;
+  columns: string[];
+  /** Display strings, already formatted (pounds, thousands separators). */
+  rows: string[][];
+  row_count: number;
+  truncated: boolean;
+  /** Set when the result is a single value. */
+  value: string | null;
+  summary: string | null;
+  corrected: boolean;
+}
+
+export interface Turn {
+  version: number;
+  kind: 'data' | 'chat' | 'error' | 'budget';
+  interpreted_as: string | null;
+  parts: Part[];
+  memory: HistoryTurn | null;
+}
+
+export interface AskResponse {
+  answer: string;
+  turn?: Turn;
+}
 
 export type AskErrorKind =
   | 'network'
@@ -33,6 +80,8 @@ export interface ConversationEntry {
   id: string;
   question: string;
   answer: string | null;
+  /** The structured answer, when the backend sent one. */
+  turn: Turn | null;
   pending: boolean;
   error: AskError | null;
 }

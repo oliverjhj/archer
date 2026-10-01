@@ -30,6 +30,7 @@ convenience:
 |---|---|
 | SQL extraction | Multi-line and fenced replies, `WITH`, statement ends outside quoted strings, braces in questions |
 | Query guard | Writes, `ATTACH`, `PRAGMA`, internal tables, `load_extension` and second statements refused by SQLite; runaway queries interrupted; row cap |
+| Pipeline | Scalar, table, empty and refused results as structured parts; a NULL sum is empty, not "None"; a model outage is an answer, not a 500; history items are capped; the legacy answer string is unchanged |
 | Prompts | Role markers become chat messages; a marker in user text cannot start one; single-pass substitution; front matter never sent |
 | JWT | Payload, expiry, tampering, wrong signing key |
 | CSRF | Generation, validation, tampered tokens |

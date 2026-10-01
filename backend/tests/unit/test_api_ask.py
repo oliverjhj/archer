@@ -114,9 +114,9 @@ def _post(client: TestClient, question: str, token: str | None = None):
 def _chat_patches(answer: str):
     """Patch the chat path so no LLM, database or network is involved."""
     return (
-        patch("archer.api.ask.create_llm", return_value=MagicMock()),
-        patch("archer.api.ask.classify_query", return_value="2"),
-        patch("archer.api.ask.generate_chat_response", return_value=answer),
+        patch("archer.pipeline.create_llm", return_value=MagicMock()),
+        patch("archer.pipeline.classify_query", return_value="2"),
+        patch("archer.pipeline.generate_chat_response", return_value=answer),
     )
 
 
@@ -196,7 +196,7 @@ def test_valid_cookie_returns_answer_without_api_key() -> None:
         response = _post(_client(), "Hello", token=_valid_token())
 
     assert response.status_code == 200
-    assert response.json() == {"answer": chat_answer}
+    assert response.json()["answer"] == chat_answer
 
 
 @pytest.mark.unit
@@ -248,5 +248,5 @@ def test_answer_question_is_the_shared_path() -> None:
         response = _post(_client(), "anything", token=_valid_token())
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "delegated"}
+    assert response.json()["answer"] == "delegated"
     shared.assert_awaited_once()

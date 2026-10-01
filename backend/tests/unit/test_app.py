@@ -345,9 +345,9 @@ def test_api_ask_answers_with_valid_cookie_on_full_app(app_module) -> None:
     expected = "Composition check answer."
 
     with patch.object(app_module, "verify_database", mock_dl), \
-        patch("archer.api.ask.create_llm", return_value=MagicMock()), \
-        patch("archer.api.ask.classify_query", return_value="2"), \
-        patch("archer.api.ask.generate_chat_response", return_value=expected):
+        patch("archer.pipeline.create_llm", return_value=MagicMock()), \
+        patch("archer.pipeline.classify_query", return_value="2"), \
+        patch("archer.pipeline.generate_chat_response", return_value=expected):
         with TestClient(app_module.app, follow_redirects=False) as client:
             client.cookies.set("archer_session", create_jwt_token("tester"))
             response = client.post("/api/ask", json={"question": "hello"})
@@ -355,4 +355,4 @@ def test_api_ask_answers_with_valid_cookie_on_full_app(app_module) -> None:
     assert response.status_code == 200, (
         f"POST /api/ask on the full app returned {response.status_code}"
     )
-    assert response.json() == {"answer": expected}
+    assert response.json()["answer"] == expected
