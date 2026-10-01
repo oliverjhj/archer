@@ -24,6 +24,7 @@ export interface UseAskResult {
   entries: ConversationEntry[];
   busy: boolean;
   submit: (question: string) => void;
+  clear: () => void;
 }
 
 export function useAsk(): UseAskResult {
@@ -91,5 +92,16 @@ export function useAsk(): UseAskResult {
       });
   }, []);
 
-  return { entries, busy, submit };
+  // Empty the conversation. Questions still in flight are aborted first, so a
+  // late answer cannot reappear in a conversation the user has just cleared.
+  // Purely client-side: each question is sent on its own, so the server holds
+  // nothing to reset.
+  const clear = useCallback(() => {
+    controllers.current.forEach((controller) => controller.abort());
+    controllers.current.clear();
+    setEntries([]);
+    setBusy(false);
+  }, []);
+
+  return { entries, busy, submit, clear };
 }

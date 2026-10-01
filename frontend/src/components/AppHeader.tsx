@@ -5,16 +5,17 @@ import {
   HeaderName,
   SkipToContent,
 } from '@carbon/react';
-import { Asleep, Help, Light } from '@carbon/icons-react';
+import { Asleep, Light, Reset } from '@carbon/icons-react';
 import type { ThemeName } from '../hooks/useTheme';
 
 interface AppHeaderProps {
   theme: ThemeName;
   onToggleTheme: () => void;
+  onClear: () => void;
 }
 
 // Top application bar (IBM Carbon UI Shell).
-export function AppHeader({ theme, onToggleTheme }: AppHeaderProps) {
+export function AppHeader({ theme, onToggleTheme, onClear }: AppHeaderProps) {
   const switchingToLight = theme === 'dark';
 
   return (
@@ -36,8 +37,16 @@ export function AppHeader({ theme, onToggleTheme }: AppHeaderProps) {
         >
           {switchingToLight ? <Light size={20} /> : <Asleep size={20} />}
         </HeaderGlobalAction>
-        <HeaderGlobalAction aria-label="About" tooltipAlignment="end">
-          <Help size={20} />
+        {/*
+          "Clear conversation", not "New chat": nothing is saved, so "new"
+          would imply a history of earlier chats that does not exist.
+        */}
+        <HeaderGlobalAction
+          aria-label="Clear conversation"
+          tooltipAlignment="end"
+          onClick={onClear}
+        >
+          <Reset size={20} />
         </HeaderGlobalAction>
       </HeaderGlobalBar>
     </Header>

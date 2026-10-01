@@ -30,8 +30,11 @@ body {
   background: #161616;
 }
 
+// g10 background. Both elements, not just body: the html background is what
+// shows in the overscroll area when the page is pulled past its edge, and
+// leaving it dark put a black band above and below the light theme.
+:root[data-theme='light'],
 :root[data-theme='light'] body {
-  // g10 background.
   background: #f4f4f4;
 }
 
@@ -39,7 +42,12 @@ body {
   min-height: 100%;
 }
 
+// flow-root stops Carbon's 3rem top margin on the content area collapsing
+// through this wrapper. Collapsed, the margin pushed the whole 100vh wrapper
+// down by the header height, so the page was always 3rem taller than the
+// window and scrolled when it should not.
 .archer-theme {
+  display: flow-root;
   min-height: 100vh;
   background: var(--cds-background);
 }
@@ -58,13 +66,22 @@ body {
   overflow: hidden;
 }
 
+// Grows with the window so a wide screen is not left with an empty band
+// beside the side navigation. Result tables and SQL use the full width; prose
+// is capped separately below, because a line of text stretched across a large
+// monitor is hard to read.
 .archer-workspace {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 60rem;
+  max-width: 110rem;
   margin: 0 auto;
   height: 100%;
+}
+
+.archer-turn__question p,
+.archer-answer__text {
+  max-width: 75ch;
 }
 
 .archer-answers {
