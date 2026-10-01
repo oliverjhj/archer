@@ -1,10 +1,10 @@
 # Archer
 
-**Ask a sales database a question in English. Get the answer, and the SQL that produced it.**
+**Ask a sales database a question in English. Get the answer and the SQL that produced it - then follow up, ask it to explain, or ask several things at once.**
 
 [![CI](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-113%20passing-brightgreen)](docs/testing.md)
-[![Execution accuracy](https://img.shields.io/badge/execution%20accuracy-100%25%20on%2033%20cases-blue)](docs/evals.md)
+[![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen)](docs/testing.md)
+[![Evals](https://img.shields.io/badge/evals-98.4%25%20on%2061%20cases-blue)](docs/evals.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](backend/pyproject.toml)
 [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
 
@@ -12,7 +12,14 @@
 
 Built on IBM watsonx.ai, FastAPI and React. Deployed on IBM Code Engine.
 
-![Archer answering two questions, each with the SQL it generated](docs/images/demo.png)
+![Archer answering "Show me the top 5 customers by revenue" with a one-line summary, a table and its SQL, then answering the follow-up "How many deals did the third one do?" - interpreted as Helix Bridge Holdings Ltd - with 321 and its SQL](docs/images/demo.png)
+
+<details>
+<summary><strong>Watch a conversation</strong> (animated, about 25 seconds)</summary>
+
+![A conversation with Archer: the top five customers, a follow-up about the third one, an explanation of the query, and a clarifying question answered with one click](docs/images/demo.gif)
+
+</details>
 
 ---
 
@@ -35,15 +42,31 @@ its query is asking to be trusted without giving you any way to check it, and
 `COUNT(*)` versus `COUNT(DISTINCT document_number)` is the difference between
 7,103 and 15,847 on this dataset.
 
+Then keep going:
+
+```
+"Show me the top 5 customers by revenue"     a table, led by a one-line summary
+"How many deals did the third one do?"       Interpreted as: How many deals did
+                                             Helix Bridge Holdings Ltd do?  ->  321
+"Can you explain that query?"                a plain-English walk through the SQL
+"What about the second one?"  (no context)   "The second what?" - with options to click
+```
+
 ## What this demonstrates
 
-- **Measured AI accuracy, not claimed.** A 33-case evaluation suite grades by
-  executing the generated SQL and comparing results, and the numbers are
-  published - including the ones that were unflattering.
+- **Measured AI accuracy, not claimed.** A 61-case evaluation suite grades by
+  executing the generated SQL and comparing results - follow-ups, explanations
+  and hold-out cases included - and the numbers are published, including the
+  ones that were unflattering.
+- **A conversation, not a query box.** Follow-ups resolved from context and
+  shown as *Interpreted as*, explanations of its own SQL, up to three questions
+  per message, a clarifying question instead of a guess, and a polite decline
+  for anything that is not about the data.
 - **Prompt engineering treated as engineering.** Prompts are versioned files
   with changelogs, and every change is measured before and after.
 - **Security designed around the model being untrustworthy.** The prompt is not
-  a boundary; SELECT-only enforcement and a read-only connection are.
+  a boundary; the database engine is - generated SQL runs read-only, through an
+  authorizer that permits reading one table and nothing else.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
 - **Production practices**: 210 tests, four CI jobs, automated deployment,
