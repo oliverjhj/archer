@@ -12,38 +12,55 @@ import {
 } from '@carbon/react';
 import { parseAnswer } from '../lib/answer';
 import type { AnswerBlock } from '../lib/answer';
-import type { ConversationEntry } from '../types/api';
+import type { ConversationEntry, Part } from '../types/api';
 
 interface AnswerItemProps {
   entry: ConversationEntry;
 }
 
-function renderBlock(block: AnswerBlock, key: number) {
-  if (block.kind === 'table') {
-    return (
-      // Result tables can be far wider than the column, so they scroll
-      // independently rather than forcing the page to scroll sideways.
-      <div className="archer-answer__table" key={key}>
-        <Table size="sm" useZebraStyles>
-          <TableHead>
-            <TableRow>
-              {block.headers.map((header, index) => (
-                <TableHeader key={`${key}-h-${index}`}>{header}</TableHeader>
+function ResultTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  return (
+    // Result tables can be far wider than the column, so they scroll
+    // independently rather than forcing the page to scroll sideways.
+    <div className="archer-answer__table">
+      <Table size="sm" useZebraStyles>
+        <TableHead>
+          <TableRow>
+            {headers.map((header, index) => (
+              <TableHeader key={`h-${index}`}>{header}</TableHeader>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row, rowIndex) => (
+            <TableRow key={`r-${rowIndex}`}>
+              {row.map((cell, cellIndex) => (
+                <TableCell key={`r-${rowIndex}-c-${cellIndex}`}>{cell}</TableCell>
               ))}
             </TableRow>
-          </TableHead>
-          <TableBody>
-            {block.rows.map((row, rowIndex) => (
-              <TableRow key={`${key}-r-${rowIndex}`}>
-                {row.map((cell, cellIndex) => (
-                  <TableCell key={`${key}-r-${rowIndex}-c-${cellIndex}`}>{cell}</TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    );
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function SqlBlock({ label, query }: { label: string; query: string }) {
+  return (
+    // Showing the generated SQL is a deliberate transparency feature, not
+    // debug output: the user can see exactly what ran.
+    <div className="archer-answer__sql">
+      <p className="archer-answer__sql-label">{label}</p>
+      <CodeSnippet type="multi" feedback="Copied" wrapText>
+        {query}
+      </CodeSnippet>
+    </div>
+  );
+}
+
+function renderBlock(block: AnswerBlock, key: number) {
+  if (block.kind === 'table') {
+    return <ResultTable key={key} headers={block.headers} rows={block.rows} />;
   }
 
   return (
@@ -59,16 +76,68 @@ function renderBlock(block: AnswerBlock, key: number) {
   );
 }
 
+/** Prose from the model: paragraphs and **bold**, nothing else. */
+function Prose({ text }: { text: string }) {
+  return <>{parseAnswer(text).blocks.map(renderBlock)}</>;
+}
+
+/** One part of a structured answer. */
+function PartView({ part }: { part: Part }) {
+  if (part.type === 'chat' || !['ok', 'empty'].includes(part.status)) {
+    return <Prose text={part.text ?? ''} />;
+  }
+
+  if (part.status === 'empty') {
+    return (
+      <>
+        <p className="archer-answer__text">{part.text}</p>
+        {part.sql && <SqlBlock label="Query attempted" query={part.sql} />}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="archer-answer__text">
+        {part.text}
+        {part.value !== null && (
+          <>
+            {' '}
+            <strong>{part.value}</strong>
+          </>
+        )}
+      </p>
+      {part.value === null && <ResultTable headers={part.columns} rows={part.rows} />}
+      {part.truncated && (
+        <p className="archer-answer__note">
+          Displaying the maximum of 100 rows to maintain performance.
+        </p>
+      )}
+      {part.sql && <SqlBlock label="SQL used" query={part.sql} />}
+    </>
+  );
+}
+
+/** An answer from a backend that sent only the Markdown string. */
+function LegacyAnswer({ answer }: { answer: string }) {
+  const parsed = parseAnswer(answer);
+  return (
+    <>
+      {parsed.blocks.map(renderBlock)}
+      {parsed.note && <p className="archer-answer__note">{parsed.note}</p>}
+      {parsed.sql && <SqlBlock label={parsed.sql.label} query={parsed.sql.query} />}
+    </>
+  );
+}
+
 /**
  * A single question/answer exchange, covering the loading, error, empty and
  * answered states.
  *
- * The answer is parsed into blocks and rendered as React elements. Nothing is
- * injected as HTML, so model output cannot become markup.
+ * Everything is rendered as React elements from structured data or parsed
+ * text. Nothing is injected as HTML, so model output cannot become markup.
  */
 export function AnswerItem({ entry }: AnswerItemProps) {
-  const parsed = entry.answer ? parseAnswer(entry.answer) : null;
-
   return (
     <article className="archer-turn">
       <div className="archer-turn__question">
@@ -100,25 +169,11 @@ export function AnswerItem({ entry }: AnswerItemProps) {
           />
         )}
 
-        {!entry.pending && !entry.error && parsed && (
-          <>
-            {parsed.blocks.map(renderBlock)}
+        {!entry.pending && !entry.error && entry.turn &&
+          entry.turn.parts.map((part, index) => <PartView key={index} part={part} />)}
 
-            {parsed.note && (
-              <p className="archer-answer__note">{parsed.note}</p>
-            )}
-
-            {parsed.sql && (
-              // Showing the generated SQL is a deliberate transparency feature,
-              // not debug output: the user can see exactly what ran.
-              <div className="archer-answer__sql">
-                <p className="archer-answer__sql-label">{parsed.sql.label}</p>
-                <CodeSnippet type="multi" feedback="Copied" wrapText>
-                  {parsed.sql.query}
-                </CodeSnippet>
-              </div>
-            )}
-          </>
+        {!entry.pending && !entry.error && !entry.turn && entry.answer && (
+          <LegacyAnswer answer={entry.answer} />
         )}
       </div>
     </article>

@@ -54,7 +54,7 @@ export function useAsk(): UseAskResult {
 
     setEntries((prev) => [
       ...prev,
-      { id, question: trimmed, answer: null, pending: true, error: null },
+      { id, question: trimmed, answer: null, turn: null, pending: true, error: null },
     ]);
     setBusy(true);
 
@@ -72,11 +72,12 @@ export function useAsk(): UseAskResult {
     void ask({ question: trimmed }, { signal: controller.signal })
       .then((response) => {
         const answer = response?.answer ?? '';
+        const turn = response?.turn ?? null;
         // An empty answer is a distinct outcome from a failed one, and the UI
         // says so rather than showing a blank bubble.
         settle(
-          answer.trim().length > 0
-            ? { answer }
+          answer.trim().length > 0 || (turn && turn.parts.length > 0)
+            ? { answer, turn }
             : { answer: null, error: { kind: 'empty', message: 'No answer was returned.' } },
         );
       })

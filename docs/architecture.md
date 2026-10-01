@@ -13,7 +13,9 @@ One container, one database file, three prompts, and a model call.
                     └──────────────────────────────┘  │
                                                       ▼
                                           ┌────────────────────┐
-                                          │  answer_question() │
+                                          │  answer_question() │  budget
+                                          ├────────────────────┤
+                                          │  run_turn()        │  pipeline
                                           └─────────┬──────────┘
                                                     │
                         ┌───────────────────────────┼──────────────┐
@@ -31,7 +33,13 @@ One container, one database file, three prompts, and a model call.
 1. A question arrives at `/api/ask` (browser, session cookie) or `/ask`
    (webhook, `x-api-key`). Both call the same `answer_question()`; nothing is
    duplicated between them.
-2. The **daily budget** is claimed before anything expensive happens.
+2. The **daily budget** is claimed before anything expensive happens, then
+   `run_turn()` in `pipeline.py` does the rest. It returns a structured
+   `Turn`: what was decided, the SQL, the result as display strings, and a
+   status for every outcome. The response carries that turn for the React app
+   and the Markdown `answer` that `/ask` callers have always received. The
+   evaluation suite calls `run_turn()` directly, so it measures exactly what
+   the demo runs.
 3. The **classifier** decides: data question or conversation.
 4. Data questions go to the **SQL generator**, which is given the live schema
    read from the database rather than a hardcoded list.
@@ -93,6 +101,7 @@ without CORS and means one thing to deploy rather than two.
 ```
 backend/archer/
 ├── app.py                 FastAPI assembly, middleware, lifespan
+├── pipeline.py            run_turn(): one message to a structured Turn
 ├── api/
 │   ├── ask.py             answer_question() and both entry points
 │   ├── auth_routes.py     /login, CSRF, cookie issuance

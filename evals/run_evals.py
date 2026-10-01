@@ -30,9 +30,9 @@ not what was asked for either.
 Routing is graded separately. Sending a greeting to the SQL generator wastes a
 call and produces nonsense, so the classifier is measured on its own.
 
-The suite runs the application's own code, not a copy of it: models come from
-archer.ai.llm.create_llm and generated SQL executes through
-archer.db.query.run_select, the same guarded path the demo uses. Token usage
+The suite runs the application's own code, not a copy of it: each case goes
+through archer.pipeline.run_turn, the function the API calls, so models,
+prompts and the guarded SQL executor are exactly what the demo uses. Token usage
 and the version of each prompt are recorded with every run, so a change in
 accuracy or cost can be traced to the change that caused it.
 
@@ -46,6 +46,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sqlite3
@@ -62,11 +63,11 @@ import yaml  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from langchain_core.callbacks import get_usage_metadata_callback  # noqa: E402
 
-from archer.ai.classifier import classify_query  # noqa: E402
-from archer.ai.llm import DEFAULT_MODEL_ID, create_llm  # noqa: E402
+from archer.ai.llm import DEFAULT_MODEL_ID  # noqa: E402
 from archer.ai.prompts import prompt_meta  # noqa: E402
-from archer.ai.sql_generator import generate_sql  # noqa: E402
+from archer.db import database  # noqa: E402
 from archer.db.query import run_select  # noqa: E402
+from archer.pipeline import run_turn  # noqa: E402
 
 PROMPTS = ("classifier", "sql_generator", "chat")
 
@@ -112,15 +113,8 @@ def value_multiset(rows: list[tuple]) -> set:
     return {normalise_cell(cell) for row in rows for cell in row}
 
 
-def grade_case(
-    case: dict,
-    conn: sqlite3.Connection,
-    database: str,
-    classifier_llm,
-    sql_llm,
-    schema_text: str,
-) -> dict:
-    """Run one case end to end and return a result record."""
+def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
+    """Run one case through the application's pipeline and grade the turn."""
     result: dict[str, Any] = {
         "id": case["id"],
         "category": case.get("category", "uncategorised"),
@@ -129,43 +123,39 @@ def grade_case(
     }
 
     started = time.monotonic()
-    try:
-        route_raw = classify_query(classifier_llm, case["question"])
-    except Exception as exc:  # noqa: BLE001 - an eval must record failures, not raise
-        result.update(route="error", route_correct=False, error=f"classifier: {exc}")
-        result["seconds"] = round(time.monotonic() - started, 2)
+    turn = asyncio.run(run_turn(case["question"]))
+    result["seconds"] = round(time.monotonic() - started, 2)
+
+    part = turn.parts[0]
+    if part.status == "model_error":
+        result.update(route="error", route_correct=False, error="model call failed")
         return result
 
-    route = "data" if route_raw == "1" else "chat"
+    route = part.type
     result["route"] = route
     result["route_correct"] = route == case["route"]
 
-    # Conversational cases stop here: there is no SQL to grade, and the whole
-    # point is that they never reach the SQL generator.
+    # Conversational cases are graded on routing alone: there is no SQL, and
+    # the point is that they never reach the SQL generator.
     if case["route"] == "chat":
-        result["seconds"] = round(time.monotonic() - started, 2)
         return result
 
     if route != "data":
         # Misrouted. No SQL was generated, so it cannot be correct.
         result.update(sql_valid=False, exact_match=False, value_match=False)
-        result["seconds"] = round(time.monotonic() - started, 2)
         return result
 
-    try:
-        generated_sql, _raw = generate_sql(sql_llm, case["question"], schema_text)
-    except Exception as exc:  # noqa: BLE001
-        result.update(sql_valid=False, exact_match=False, value_match=False, error=f"generator: {exc}")
-        result["seconds"] = round(time.monotonic() - started, 2)
-        return result
-
+    generated_sql = part.sql or ""
     result["generated_sql"] = generated_sql
-    result["seconds"] = round(time.monotonic() - started, 2)
+    result["status"] = part.status
 
     if not generated_sql:
         result.update(sql_valid=False, exact_match=False, value_match=False, error="no SQL produced")
         return result
 
+    # The pipeline has already run this query; it runs again here for the raw
+    # values, because the turn holds display strings (£ signs, commas) that
+    # cannot be compared with the reference result.
     actual_rows, actual_error = run_generated(generated_sql, database)
     if actual_error is not None:
         result.update(sql_valid=False, exact_match=False, value_match=False, error=actual_error)
@@ -249,13 +239,12 @@ def main() -> int:
         cases = [c for c in cases if c["id"] == args.only]
 
     conn = sqlite3.connect(f"file:{args.database}?mode=ro", uri=True)
-    schema_text = ", ".join(
-        row[1] for row in conn.execute("PRAGMA table_info(sales_data)").fetchall()
-    )
 
-    # The same clients the application builds, token budgets included.
-    classifier_llm = create_llm("classifier", model_id=args.model)
-    sql_llm = create_llm("sql", model_id=args.model)
+    # The pipeline resolves its model and database the way the application
+    # does, from the environment and the configured path, so the suite points
+    # those at what it was asked to measure.
+    os.environ["WATSONX_MODEL_ID"] = args.model
+    database.DB_FILENAME = args.database
     prompt_versions = {name: prompt_meta(name).get("version", "?") for name in PROMPTS}
 
     print(f"model: {args.model}")
@@ -265,7 +254,7 @@ def main() -> int:
     results = []
     for index, case in enumerate(cases, start=1):
         with get_usage_metadata_callback() as usage:
-            record = grade_case(case, conn, args.database, classifier_llm, sql_llm, schema_text)
+            record = grade_case(case, conn, args.database)
         record["input_tokens"] = sum(u.get("input_tokens", 0) for u in usage.usage_metadata.values())
         record["output_tokens"] = sum(u.get("output_tokens", 0) for u in usage.usage_metadata.values())
         results.append(record)

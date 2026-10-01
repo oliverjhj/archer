@@ -38,7 +38,7 @@ survive an interview question.
 ## Validation
 
 ```powershell
-.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 150 tests
+.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 163 tests
 cd frontend; npm run typecheck; npm run build
 ```
 
@@ -57,6 +57,13 @@ an element exists cannot tell you a user can reach it.
 - One shared `answer_question()` serves both `/ask` (webhook, `x-api-key`) and
   `/api/ask` (browser, `archer_session` cookie). Do not duplicate it - a test
   asserts both routes return identical answers.
+- `answer_question()` claims the budget and calls `run_turn()` in
+  `backend/archer/pipeline.py`, which does the work and returns a structured
+  `Turn`. The response carries both `turn` (what the React app renders) and
+  `answer`, the Markdown string `/ask` has always returned, built by
+  `format_legacy()` - keep it unchanged for existing outcomes. The eval suite
+  calls `run_turn()` directly, so never add logic to the route that the
+  pipeline does not have.
 - A 401 redirects to `/login` for page routes but returns JSON for `/api/`
   paths. Both halves are pinned by tests.
 - Model calls go through `asyncio.to_thread`: the watsonx SDK is synchronous

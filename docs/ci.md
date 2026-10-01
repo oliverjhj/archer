@@ -10,7 +10,7 @@ which need a `.env`, a database, IBM Cloud credentials or any secret.
 | Job | What it does |
 |---|---|
 | `compile-and-validate` | Python 3.12 syntax check (`py_compile`), `pyproject.toml` validation, YAML config validation. |
-| `unit-tests` | `pytest backend/tests/unit -m unit` - 150 tests, fully offline. |
+| `unit-tests` | `pytest backend/tests/unit -m unit` - 163 tests, fully offline. |
 | `frontend` | `npm ci`, type check and production build of the React app on Node 20, matching the Dockerfile build stage. |
 | `docker-build` | Builds the image from `backend/Dockerfile`. Does not run the container. |
 
