@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 460" width="940" height="460" font-family="'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
   <title id="title">Archer request flow</title>
-  <desc id="desc">A question arrives at FastAPI, is claimed against a daily budget, classified as either a data question or conversation, then either converted to SQL and run against a read-only SQLite database or answered conversationally. Both paths call IBM watsonx.ai.</desc>
+  <desc id="desc">A question arrives at FastAPI, is claimed against a daily budget, planned in the context of the last three exchanges as a data question, data-related conversation or an off-topic request, restated so it stands on its own, then either converted to SQL and run against a read-only SQLite database, answered conversationally, or declined with a fixed message. Every path calls IBM watsonx.ai.</desc>
 
   <!--
     Colours are chosen to read on both light and dark GitHub themes, so the
@@ -27,6 +27,7 @@
   <rect class="box" x="20" y="188" width="118" height="58"/>
   <text class="label" x="79" y="212" text-anchor="middle">Browser</text>
   <text class="sub" x="79" y="230" text-anchor="middle">React + Carbon</text>
+  <text class="sub" x="79" y="262" text-anchor="middle">holds the conversation</text>
 
   <!-- FastAPI -->
   <rect class="box-accent" x="182" y="160" width="168" height="114"/>
@@ -36,11 +37,12 @@
   <text class="sub" x="266" y="248" text-anchor="middle">daily budget claimed</text>
   <text class="sub" x="266" y="263" text-anchor="middle">before any model call</text>
 
-  <!-- Classifier -->
-  <rect class="box" x="398" y="182" width="132" height="70"/>
-  <text class="label" x="464" y="207" text-anchor="middle">Classifier</text>
-  <text class="sub" x="464" y="226" text-anchor="middle">data or chat?</text>
-  <text class="sub" x="464" y="242" text-anchor="middle">5 tokens</text>
+  <!-- Planner -->
+  <rect class="box" x="398" y="174" width="140" height="86"/>
+  <text class="label" x="468" y="199" text-anchor="middle">Planner</text>
+  <text class="sub" x="468" y="218" text-anchor="middle">data, chat, off-topic?</text>
+  <text class="sub" x="468" y="234" text-anchor="middle">resolves follow-ups</text>
+  <text class="sub" x="468" y="250" text-anchor="middle">JSON plan</text>
 
   <!-- SQL generator -->
   <rect class="box" x="588" y="92" width="150" height="72"/>
@@ -51,7 +53,7 @@
   <!-- Chat -->
   <rect class="box" x="588" y="284" width="150" height="60"/>
   <text class="label" x="663" y="309" text-anchor="middle">Conversational</text>
-  <text class="sub" x="663" y="328" text-anchor="middle">never sees the schema</text>
+  <text class="sub" x="663" y="328" text-anchor="middle">explains answers and terms</text>
 
   <!-- SQLite -->
   <rect class="box-data" x="792" y="92" width="128" height="72"/>
@@ -68,19 +70,19 @@
   <path class="edge" d="M 138 217 L 178 217"/>
   <path class="edge" d="M 350 217 L 394 217"/>
 
-  <!-- classifier to SQL generator -->
-  <path class="edge" d="M 530 205 C 558 205, 560 128, 584 128"/>
+  <!-- planner to SQL generator -->
+  <path class="edge" d="M 538 205 C 562 205, 562 128, 584 128"/>
   <text class="edge-label" x="546" y="152" text-anchor="middle">data</text>
 
-  <!-- classifier to chat -->
-  <path class="edge" d="M 530 232 C 558 232, 560 314, 584 314"/>
+  <!-- planner to chat -->
+  <path class="edge" d="M 538 232 C 562 232, 562 314, 584 314"/>
   <text class="edge-label" x="548" y="290" text-anchor="middle">chat</text>
 
   <!-- SQL generator to SQLite -->
   <path class="edge" d="M 738 128 L 788 128"/>
 
   <!-- model calls -->
-  <path class="edge" d="M 464 252 C 464 380, 520 400, 560 405" stroke-dasharray="4 3"/>
+  <path class="edge" d="M 468 260 C 468 380, 520 400, 560 405" stroke-dasharray="4 3"/>
   <path class="edge" d="M 663 164 C 700 200, 700 340, 690 388" stroke-dasharray="4 3"/>
   <path class="edge" d="M 663 344 L 663 388" stroke-dasharray="4 3"/>
 
@@ -90,4 +92,6 @@
   <text class="note" x="792" y="196">The answer and the SQL that</text>
   <text class="note" x="792" y="211">produced it both go back to</text>
   <text class="note" x="792" y="226">the browser.</text>
+  <text class="note" x="398" y="150">Off-topic: a fixed decline,</text>
+  <text class="note" x="398" y="165">no second model call.</text>
 </svg>

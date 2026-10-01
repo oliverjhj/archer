@@ -9,10 +9,24 @@
 # Fields:
 #   id            stable identifier, used in reports
 #   question      the natural-language input
-#   route         expected classifier decision: data | chat
+#   route         expected kind of answer: data | chat
+#   expect_kind   overrides route where the answer should be a decline:
+#                 data | chat | decline
 #   category      grouping for the results table
 #   expected_sql  reference query (data cases only)
 #   ordered       true when row order is part of correctness (top-N questions)
+#
+# Conversation cases (planner):
+#   history                   earlier exchanges, scripted: each a question plus
+#                             either the sql that answered it (executed for real)
+#                             or an answer. Scripted so a follow-up case tests
+#                             the follow-up, not a re-run of the earlier answer.
+#   interpreted_must_include  words the restated question must contain, so a
+#                             wrong restatement is reported as the planner's fault
+#   interpreted_none          true when the question must not be restated
+#   answer_includes_any       for chat: the reply must contain one of these
+#   holdout                   written once and run, never tuned against; reported
+#                             separately as the honest measure of new behaviour
 #
 # Names used in questions come from the generated dataset, so they are
 # reproducible: regenerating with the same seed keeps these cases valid.
@@ -282,9 +296,10 @@
 # ---------------------------------------------------------------------------
 # Conversational routing
 #
-# These have no SQL. They test only that the classifier keeps them away from
-# the database, which is where the pipeline is most likely to waste a call or
-# produce nonsense.
+# These have no SQL. They test that the planner keeps them away from the
+# database, which is where the pipeline is most likely to waste a call or
+# produce nonsense, and that off-topic requests are declined rather than
+# answered.
 # ---------------------------------------------------------------------------
 
 - id: chat-greeting
@@ -300,14 +315,229 @@
 - id: chat-off-topic-creative
   question: Write me a poem about the sea
   route: chat
-  category: conversation
+  expect_kind: decline
+  category: decline
 
 - id: chat-off-topic-knowledge
   question: What is the capital of Australia?
   route: chat
-  category: conversation
+  expect_kind: decline
+  category: decline
 
 - id: chat-thanks
   question: Thanks, that is really helpful
   route: chat
   category: conversation
+
+# ---------------------------------------------------------------------------
+# Follow-ups
+#
+# Each has a scripted earlier exchange. The follow-up only makes sense with
+# it, so these measure whether the planner restates the question correctly
+# (interpreted_must_include) and whether the restated question is answered
+# correctly (expected_sql). Names and questions differ from the planner
+# prompt's own examples.
+# ---------------------------------------------------------------------------
+
+- id: followup-ordinal-deal-count
+  history:
+    - question: Show me the top 5 customers by revenue
+      sql: >
+        SELECT customer_name, SUM(revenue) FROM sales_data
+        GROUP BY customer_name ORDER BY SUM(revenue) DESC LIMIT 5
+  question: How many deals did the third one do?
+  route: data
+  category: followup
+  interpreted_must_include: [Helix Bridge Holdings Ltd]
+  expected_sql: >
+    SELECT COUNT(DISTINCT document_number) FROM sales_data
+    WHERE customer_name = 'Helix Bridge Holdings Ltd'
+
+- id: followup-refine-year
+  history:
+    - question: What was the total hardware revenue in 2023?
+      sql: >
+        SELECT SUM(revenue) FROM sales_data
+        WHERE item_group = 'IBM CCHW' AND STRFTIME('%Y', document_date) = '2023'
+  question: And in 2022?
+  route: data
+  category: followup
+  interpreted_must_include: [hardware, "2022"]
+  expected_sql: >
+    SELECT SUM(revenue) FROM sales_data
+    WHERE item_group = 'IBM CCHW' AND STRFTIME('%Y', document_date) = '2022'
+
+- id: followup-refine-item-group
+  history:
+    - question: What is the total services revenue?
+      sql: SELECT SUM(revenue) FROM sales_data WHERE item_group = 'IBM SERV'
+  question: What about software?
+  route: data
+  category: followup
+  interpreted_must_include: [software]
+  expected_sql: SELECT SUM(revenue) FROM sales_data WHERE item_group = 'IBM SOFT'
+
+- id: followup-pronoun-deal-count
+  history:
+    - question: What was the total revenue for Galaxy Crest Global PLC?
+      sql: >
+        SELECT SUM(revenue) FROM sales_data
+        WHERE LOWER(customer_name) LIKE LOWER('%galaxy crest global plc%')
+  question: How many deals did they do in 2024?
+  route: data
+  category: followup
+  interpreted_must_include: [Galaxy Crest Global PLC, "2024"]
+  expected_sql: >
+    SELECT COUNT(DISTINCT document_number) FROM sales_data
+    WHERE customer_name = 'Galaxy Crest Global PLC'
+      AND STRFTIME('%Y', document_date) = '2024'
+
+- id: followup-end-user-ordinal
+  history:
+    - question: Which 3 end users have the highest revenue?
+      sql: >
+        SELECT end_user_company_name, SUM(revenue) FROM sales_data
+        GROUP BY end_user_company_name ORDER BY SUM(revenue) DESC LIMIT 3
+  question: How much revenue did the second one bring in during 2025?
+  route: data
+  category: followup
+  interpreted_must_include: [end user, Orbit Vertex Data PLC]
+  expected_sql: >
+    SELECT SUM(revenue) FROM sales_data
+    WHERE end_user_company_name = 'Orbit Vertex Data PLC'
+      AND STRFTIME('%Y', document_date) = '2025'
+
+- id: followup-unrelated-question-is-left-alone
+  history:
+    - question: Show me the top 5 customers by revenue
+      sql: >
+        SELECT customer_name, SUM(revenue) FROM sales_data
+        GROUP BY customer_name ORDER BY SUM(revenue) DESC LIMIT 5
+  question: What was the total revenue in 2025?
+  route: data
+  category: followup
+  interpreted_none: true
+  expected_sql: >
+    SELECT SUM(revenue) FROM sales_data
+    WHERE STRFTIME('%Y', document_date) = '2025'
+
+# ---------------------------------------------------------------------------
+# Data-related chat: explained, not refused
+# ---------------------------------------------------------------------------
+
+- id: chat-explain-sql
+  history:
+    - question: Show me the top 5 customers by revenue
+      sql: >
+        SELECT customer_name, SUM(revenue) FROM sales_data
+        GROUP BY customer_name ORDER BY SUM(revenue) DESC LIMIT 5
+  question: Can you explain that query?
+  route: chat
+  category: chat
+  answer_includes_any: [group, sum, total]
+
+- id: chat-item-group-term
+  question: What does IBM CCHW mean?
+  route: chat
+  category: chat
+  answer_includes_any: [hardware]
+
+- id: chat-credit-term
+  question: What is a credit in this data?
+  route: chat
+  category: chat
+  answer_includes_any: [refund, negative, revers]
+
+- id: chat-column-meaning
+  question: What does the multi_year_deal_flag_so column mean?
+  route: chat
+  category: chat
+  answer_includes_any: [year]
+
+# ---------------------------------------------------------------------------
+# Off-topic: declined with the fixed message
+# ---------------------------------------------------------------------------
+
+- id: decline-coding-help
+  question: Can you help me write a Python script to sort a list?
+  route: chat
+  expect_kind: decline
+  category: decline
+
+- id: decline-weather
+  question: What's the weather like in London today?
+  route: chat
+  expect_kind: decline
+  category: decline
+
+# ---------------------------------------------------------------------------
+# Hold-out
+#
+# Written once and run; never tuned against. If a prompt change is made to
+# fix one of these, it stops being a hold-out case and moves to its category.
+# ---------------------------------------------------------------------------
+
+- id: holdout-followup-product-ordinal
+  holdout: true
+  history:
+    - question: What are the top 3 products by revenue?
+      sql: >
+        SELECT item_description, SUM(revenue) FROM sales_data
+        GROUP BY item_description ORDER BY SUM(revenue) DESC LIMIT 3
+  question: how many units of the first one did we sell?
+  route: data
+  category: holdout
+  interpreted_must_include: [IBM Lab Services Implementation Professional Services Day Rate]
+  expected_sql: >
+    SELECT SUM(quantity) FROM sales_data
+    WHERE item_description = 'IBM Lab Services Implementation Professional Services Day Rate'
+
+- id: holdout-followup-same-for-another-year
+  holdout: true
+  history:
+    - question: How many deals did Aurora Harbour Partners PLC do in 2024?
+      sql: >
+        SELECT COUNT(DISTINCT document_number) FROM sales_data
+        WHERE customer_name = 'Aurora Harbour Partners PLC'
+          AND STRFTIME('%Y', document_date) = '2024'
+  question: same question for 2023 please
+  route: data
+  category: holdout
+  interpreted_must_include: [Aurora Harbour Partners PLC, "2023"]
+  expected_sql: >
+    SELECT COUNT(DISTINCT document_number) FROM sales_data
+    WHERE customer_name = 'Aurora Harbour Partners PLC'
+      AND STRFTIME('%Y', document_date) = '2023'
+
+- id: holdout-chat-explain-scalar
+  holdout: true
+  history:
+    - question: What is the total value of all credits?
+      sql: SELECT SUM(revenue) FROM sales_data WHERE document_type = 'Credit'
+  question: why is that number negative?
+  route: chat
+  category: holdout
+  answer_includes_any: [credit, refund, revers]
+
+- id: holdout-chat-capability-followups
+  holdout: true
+  question: Can I ask follow-up questions about an answer?
+  route: chat
+  category: holdout
+
+- id: holdout-decline-recipe
+  holdout: true
+  question: Give me a recipe for banana bread
+  route: chat
+  expect_kind: decline
+  category: holdout
+
+- id: holdout-data-not-declined
+  holdout: true
+  question: Which end user bought the most IBM Maximo licences?
+  route: data
+  category: holdout
+  expected_sql: >
+    SELECT end_user_company_name, SUM(quantity) FROM sales_data
+    WHERE LOWER(item_description) LIKE '%maximo%'
+    GROUP BY end_user_company_name ORDER BY SUM(quantity) DESC LIMIT 1

@@ -11,7 +11,7 @@ All external dependencies called inside ask_ai() are patched at the name they
 are looked up under inside archer.api.ask:
 
   - archer.pipeline.create_llm          -- prevents WatsonxLLM instantiation
-  - archer.pipeline.classify_query      -- controls route decision
+  - archer.pipeline.plan_message        -- controls the plan (data or chat)
   - archer.pipeline.generate_chat_response -- controls Route B output
   - archer.pipeline.generate_sql        -- controls Route A SQL output
   - archer.pipeline.os.path.exists      -- controls database-file presence check
@@ -30,6 +30,7 @@ import sqlite3
 import tempfile
 import pytest
 
+from langchain_core.messages import AIMessage
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -38,6 +39,14 @@ from slowapi import _rate_limit_exceeded_handler
 
 from archer.api import ask as ask_module
 from archer.core.limiter import limiter
+from archer.ai.planner import Plan, PlannedPart
+
+def _plan_as(kind):
+    """A stand-in for the planner that keeps the question as typed."""
+    def plan(_llm, question, _history=()):
+        return Plan(kind=kind, parts=[PlannedPart(kind=kind, question=question)])
+    return plan
+
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +160,7 @@ def test_invalid_api_key_returns_401() -> None:
 @pytest.mark.unit
 def test_chat_route_returns_mocked_answer() -> None:
     """
-    When the classifier returns route "2" the chat path is taken and the
+    When the planner returns a chat plan the chat path is taken and the
     mocked generate_chat_response() return value appears in the response body.
     """
     mock_llm = MagicMock()
@@ -159,7 +168,7 @@ def test_chat_route_returns_mocked_answer() -> None:
 
     with (
         patch("archer.pipeline.create_llm", return_value=mock_llm),
-        patch("archer.pipeline.classify_query", return_value="2"),
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("chat")),
         patch("archer.pipeline.generate_chat_response", return_value=chat_answer),
     ):
         client = _client()
@@ -177,7 +186,7 @@ def test_chat_route_calls_generate_chat_response_once() -> None:
 
     with (
         patch("archer.pipeline.create_llm", return_value=mock_llm),
-        patch("archer.pipeline.classify_query", return_value="2"),
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("chat")),
         patch("archer.pipeline.generate_chat_response", mock_generate_chat),
     ):
         client = _client()
@@ -201,7 +210,7 @@ def test_sql_route_database_file_missing_returns_unavailable_message() -> None:
 
     with (
         patch("archer.pipeline.create_llm", return_value=mock_llm),
-        patch("archer.pipeline.classify_query", return_value="1"),
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
         patch("archer.pipeline.os.path.exists", return_value=False),
     ):
         client = _client()
@@ -223,7 +232,7 @@ def test_sql_route_empty_sql_returns_invalid_query_message() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=("", "I could not parse that")),
@@ -251,7 +260,7 @@ def test_sql_route_non_select_sql_is_blocked() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch(
@@ -295,7 +304,7 @@ def test_sql_route_select_returns_answer_response() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch(
@@ -337,7 +346,7 @@ def test_sql_zero_rows_returns_no_data_message() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -370,7 +379,7 @@ def test_sql_single_scalar_integer_formats_with_commas() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -406,7 +415,7 @@ def test_sql_single_scalar_revenue_formats_with_pound_sign() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -441,7 +450,7 @@ def test_sql_single_row_multiple_columns_returns_markdown_table() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -496,7 +505,7 @@ def test_sql_multiple_rows_returns_all_rows_in_table() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -532,7 +541,7 @@ def test_sql_revenue_column_in_table_formats_with_pound_sign() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -567,7 +576,7 @@ def test_sql_quantity_column_in_table_formats_as_integer() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),
@@ -610,7 +619,7 @@ def test_sql_execution_error_returns_rephrasing_message() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(bad_sql, bad_sql)),
@@ -663,15 +672,15 @@ def test_question_as_list_routes_to_chat() -> None:
     accepts the request, coerces the value, and returns a chat response.
 
     The Union[str, List[str]] schema in AskRequest permits this; the handler
-    joins the list into one string before it reaches the classifier.
-    A mocked classifier returning "2" directs the flow to Route B (chat).
+    joins the list into one string before it reaches the planner.
+    A mocked chat plan directs the flow to the chat route.
     """
     mock_llm = MagicMock()
     chat_answer = "Hello from Archer."
 
     with (
         patch("archer.pipeline.create_llm", return_value=mock_llm),
-        patch("archer.pipeline.classify_query", return_value="2"),
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("chat")),
         patch("archer.pipeline.generate_chat_response", return_value=chat_answer),
     ):
         client = _client()
@@ -686,33 +695,32 @@ def test_question_as_list_routes_to_chat() -> None:
 
 
 # ---------------------------------------------------------------------------
-# /ask edge cases: classifier returns unexpected value
+# /ask edge cases: the planner reply cannot be parsed
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-def test_classifier_unexpected_value_falls_back_to_chat() -> None:
+def test_unparseable_plan_falls_back_to_a_data_question() -> None:
     """
-    When classify_query() returns a value that is neither "1" nor "2" the
-    handler falls through to the else branch and invokes the chat path.
-
-    This test uses "3" as the unexpected classifier return value to confirm
-    that the routing logic's default case is the chat route.
+    When the planner's reply is not a valid plan, the message is treated as a
+    data question exactly as typed - the behaviour before the planner existed.
     """
-    mock_llm = MagicMock()
-    mock_chat = MagicMock(return_value="Fallback chat response.")
+    planner_llm = MagicMock()
+    planner_llm.invoke.return_value = AIMessage(content="not json at all")
 
     with (
-        patch("archer.pipeline.create_llm", return_value=mock_llm),
-        patch("archer.pipeline.classify_query", return_value="3"),
-        patch("archer.pipeline.generate_chat_response", mock_chat),
+        patch("archer.pipeline.create_llm", return_value=planner_llm),
+        patch("archer.ai.planner.dataset_date_range", return_value=("2020-01-01", "2026-03-17")),
+        patch("archer.pipeline.os.path.exists", return_value=False),
     ):
         client = _client()
-        response = _post(client, "Unexpected route question")
+        response = _post(client, "Fallback question")
 
     assert response.status_code == 200
-    assert response.json()["answer"] == "Fallback chat response."
-    mock_chat.assert_called_once()
+    body = response.json()
+    assert body["turn"]["kind"] == "error"
+    assert body["turn"]["parts"][0]["type"] == "data"
+    assert body["turn"]["interpreted_as"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +767,7 @@ def test_sql_101_rows_triggers_truncation_note() -> None:
     try:
         with (
             patch("archer.pipeline.create_llm", return_value=mock_llm),
-            patch("archer.pipeline.classify_query", return_value="1"),
+            patch("archer.pipeline.plan_message", side_effect=_plan_as("data")),
             patch("archer.pipeline.os.path.exists", return_value=True),
             patch("archer.pipeline.os.path.abspath", return_value=tmp_db),
             patch("archer.pipeline.generate_sql", return_value=(select_sql, select_sql)),

@@ -41,6 +41,14 @@ from slowapi import _rate_limit_exceeded_handler
 from archer.api import ask as ask_module
 from archer.auth import jwt as jwt_module
 from archer.core.limiter import limiter
+from archer.ai.planner import Plan, PlannedPart
+
+def _plan_as(kind):
+    """A stand-in for the planner that keeps the question as typed."""
+    def plan(_llm, question, _history=()):
+        return Plan(kind=kind, parts=[PlannedPart(kind=kind, question=question)])
+    return plan
+
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +123,7 @@ def _chat_patches(answer: str):
     """Patch the chat path so no LLM, database or network is involved."""
     return (
         patch("archer.pipeline.create_llm", return_value=MagicMock()),
-        patch("archer.pipeline.classify_query", return_value="2"),
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("chat")),
         patch("archer.pipeline.generate_chat_response", return_value=answer),
     )
 
@@ -250,3 +258,40 @@ def test_answer_question_is_the_shared_path() -> None:
     assert response.status_code == 200
     assert response.json()["answer"] == "delegated"
     shared.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# History on the request
+# ---------------------------------------------------------------------------
+
+
+def _post_json(client: TestClient, body: dict, token: str):
+    client.cookies.set(_COOKIE_NAME, token)
+    return client.post(_API_ASK_URL, json=body)
+
+
+@pytest.mark.unit
+def test_history_is_accepted_and_both_routes_still_agree() -> None:
+    history = [{"question": "Top customers?", "sql": "SELECT 1", "columns": ["a"], "rows": [["x"]], "answer": "ok"}]
+    body = {"question": "and the second?", "history": history}
+
+    p1, p2, p3 = _chat_patches("Context answer.")
+    with p1, p2, p3:
+        client = _client()
+        client.cookies.clear()
+        webhook = client.post(_ASK_URL, json=body, headers={"x-api-key": _VALID_API_KEY})
+        browser = _post_json(_client(), body, _valid_token())
+
+    assert browser.status_code == 200
+    assert browser.json() == webhook.json()
+
+
+@pytest.mark.unit
+def test_too_much_history_is_rejected() -> None:
+    body = {"question": "x", "history": [{"question": f"q{i}"} for i in range(7)]}
+    assert _post_json(_client(), body, _valid_token()).status_code == 422
+
+
+@pytest.mark.unit
+def test_overlong_question_is_rejected() -> None:
+    assert _post_json(_client(), {"question": "x" * 2001}, _valid_token()).status_code == 422

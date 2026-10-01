@@ -43,6 +43,28 @@ An injection that persuades the model to emit `DROP TABLE` produces a refused
 query and a log line. The defence is layered because the first layer is the
 one made of natural language.
 
+### Conversation history is untrusted input
+
+Follow-up questions work because the browser sends the last few exchanges with
+each question. That history is client-supplied text, and is treated as such:
+
+- **Bounded.** The request accepts at most six items with capped field lengths
+  (anything larger is rejected), and the pipeline then keeps only the last
+  three, at most ten rows and eight columns each, cells of 80 characters and a
+  6,000-character total, with control characters removed.
+- **Context, never instruction.** History is shown to the model inside the
+  user message, under a heading saying it is earlier conversation. It never
+  enters a system message, and because prompts are split into messages before
+  any text is substituted, a role marker inside it stays inert text.
+- **Never executed.** The SQL in history is shown to the planner so it can
+  restate a follow-up. It is never run: only SQL generated for the current
+  question runs, and only through `run_select`.
+- **Only misleads the person who forges it.** Nothing is stored on the server
+  and no history is shared between visitors, so a forged history can only
+  confuse the answer its own sender receives.
+- **Not logged.** The server logs how many history items arrived, not what
+  they said.
+
 ## Authentication
 
 **Browser sessions.** `/login` issues a JWT in an `archer_session` cookie:

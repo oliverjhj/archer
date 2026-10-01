@@ -46,7 +46,7 @@ its query is asking to be trusted without giving you any way to check it, and
   a boundary; SELECT-only enforcement and a read-only connection are.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
-- **Production practices**: 163 tests, four CI jobs, automated deployment,
+- **Production practices**: 182 tests, four CI jobs, automated deployment,
   non-root multi-stage container, scale-to-zero hosting.
 
 ## The number that matters
@@ -70,16 +70,24 @@ guessed, plausibly and wrongly. **Both models made the same mistake
 independently**, which is what identified it as a prompt gap rather than a model
 weakness.
 
-100% on 33 cases means *no known failures*, not *no failures* - see
+100% on 52 cases means *no known failures*, not *no failures* - see
 [`docs/evals.md`](docs/evals.md), which says so at more length.
 
 ## Architecture
 
-![How a question becomes an answer: FastAPI claims a daily budget, a classifier routes the question, and either the SQL generator queries a read-only SQLite database or a conversational prompt answers it](docs/images/architecture.svg)
+![How a question becomes an answer: FastAPI claims a daily budget, a planner reads the question in the context of the conversation, and either the SQL generator queries a read-only SQLite database, a conversational prompt explains, or an off-topic request is declined](docs/images/architecture.svg)
 
-Classification is a separate model call. A combined prompt would have to decide
-*and* produce SQL in one pass, and a model shown fifteen SQL examples will write
-SQL for "hello".
+**It holds a conversation.** The browser keeps the last three exchanges and
+sends them with each question, so a follow-up such as *"how many deals did the
+second one do?"* works. A planner call reads the question in that context and
+restates it so it stands on its own - shown to the user as *Interpreted as* -
+before the SQL generator sees it. It can also explain an answer or its SQL, and
+politely declines anything that is not about the data. Nothing is stored on the
+server.
+
+Planning is a separate model call from SQL generation. A combined prompt would
+have to decide *and* produce SQL in one pass, and a model shown fifteen SQL
+examples will write SQL for "hello".
 
 The dataset is **generated at build time** from a seeded script - 100,000 rows,
 37 columns, byte-identical for a given seed. It was previously downloaded from
@@ -117,7 +125,7 @@ Requires an IBM Cloud API key and a watsonx.ai project. See
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 163 tests
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 182 tests
 python evals/run_evals.py                                          # accuracy
 ```
 

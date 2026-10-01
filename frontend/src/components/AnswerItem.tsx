@@ -11,7 +11,7 @@ import {
   Tag,
 } from '@carbon/react';
 import { parseAnswer } from '../lib/answer';
-import type { AnswerBlock } from '../lib/answer';
+import type { AnswerBlock, TextSpan } from '../lib/answer';
 import type { ConversationEntry, Part } from '../types/api';
 
 interface AnswerItemProps {
@@ -58,20 +58,34 @@ function SqlBlock({ label, query }: { label: string; query: string }) {
   );
 }
 
+function renderSpans(spans: TextSpan[], key: string) {
+  return spans.map((span, index) =>
+    span.bold ? (
+      <strong key={`${key}-s-${index}`}>{span.text}</strong>
+    ) : (
+      <span key={`${key}-s-${index}`}>{span.text}</span>
+    ),
+  );
+}
+
 function renderBlock(block: AnswerBlock, key: number) {
   if (block.kind === 'table') {
     return <ResultTable key={key} headers={block.headers} rows={block.rows} />;
   }
 
+  if (block.kind === 'list') {
+    return (
+      <ul className="archer-answer__list" key={key}>
+        {block.items.map((item, index) => (
+          <li key={`${key}-i-${index}`}>{renderSpans(item, `${key}-i-${index}`)}</li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <p className="archer-answer__text" key={key}>
-      {block.spans.map((span, index) =>
-        span.bold ? (
-          <strong key={`${key}-s-${index}`}>{span.text}</strong>
-        ) : (
-          <span key={`${key}-s-${index}`}>{span.text}</span>
-        ),
-      )}
+      {renderSpans(block.spans, String(key))}
     </p>
   );
 }
@@ -167,6 +181,20 @@ export function AnswerItem({ entry }: AnswerItemProps) {
             }
             subtitle={entry.error.message}
           />
+        )}
+
+        {/*
+          Shown only when a data question was restated. A follow-up such as
+          "how many deals did the second one do?" is answered as a standalone
+          question; saying which one makes a wrong reading obvious at once.
+          A chat reply shows its own understanding, so it is not repeated.
+        */}
+        {!entry.pending && !entry.error && entry.turn?.interpreted_as &&
+          entry.turn.parts[0]?.type === 'data' && (
+          <p className="archer-answer__interpreted">
+            <span className="archer-answer__interpreted-label">Interpreted as</span>{' '}
+            {entry.turn.interpreted_as}
+          </p>
         )}
 
         {!entry.pending && !entry.error && entry.turn &&

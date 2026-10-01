@@ -20,7 +20,7 @@ One container, one database file, three prompts, and a model call.
                                                     │
                         ┌───────────────────────────┼──────────────┐
                         ▼                           ▼              ▼
-                 classifier prompt          sql_generator      chat prompt
+                   planner prompt           sql_generator      chat prompt
                         │                           │              │
                         └──────▶ watsonx.ai ◀───────┴──────────────┘
                                                     │
@@ -40,8 +40,15 @@ One container, one database file, three prompts, and a model call.
    and the Markdown `answer` that `/ask` callers have always received. The
    evaluation suite calls `run_turn()` directly, so it measures exactly what
    the demo runs.
-3. The **classifier** decides: data question or conversation.
-4. Data questions go to the **SQL generator**, which is given the live schema
+3. The **planner** reads the question with the last three exchanges, which
+   the browser sends along with it, and returns a small JSON plan: is this a
+   data question, data-related conversation, or off-topic - and what is the
+   question once any reference to the conversation ("the second one", "and
+   for 2024?") is resolved? Off-topic requests get a fixed decline with no
+   further model call. Without earlier exchanges the question is used exactly
+   as typed.
+4. Data questions go to the **SQL generator** - the restated question,
+   never the conversation - which is given the live schema
    read from the database rather than a hardcoded list.
 5. The generated SQL is executed through `run_select`: a read-only connection
    whose SQLite authorizer permits reading `sales_data` and nothing else, one
@@ -109,7 +116,7 @@ backend/archer/
 ├── ai/
 │   ├── llm.py             per-task watsonx chat clients
 │   ├── prompts.py         prompt loading from prompts/*.md
-│   ├── classifier.py      routing
+│   ├── planner.py         kind of reply, and the question restated
 │   ├── sql_generator.py   SQL generation and extraction
 │   └── chat.py            conversational replies
 ├── auth/                  JWT and CSRF
@@ -128,9 +135,15 @@ literals. See [`prompts.md`](prompts.md).
 
 ## Design decisions worth defending
 
-**Classification is a separate call.** A combined prompt would have to decide
-and produce SQL in one pass, and a model shown fifteen SQL examples will write
-SQL for "hello". Two small calls beat one confused one.
+**Planning is a separate call.** A combined prompt would have to decide and
+produce SQL in one pass, and a model shown fifteen SQL examples will write SQL
+for "hello". The planner also restates follow-ups, so the SQL generator only
+ever sees a standalone question - the kind its 100% was measured on.
+
+**The browser holds the conversation.** History goes from the browser to the
+server with each question and is stored nowhere. That keeps the server
+stateless, means "Clear conversation" really does clear it, and makes the
+history untrusted input by construction - which is how it is treated.
 
 **Execution-based evaluation.** Accuracy is measured by running both the
 reference and the generated query and comparing results, not by comparing SQL

@@ -12,42 +12,58 @@ what changed. The loader strips it before the model sees it.
 
 ## The pipeline
 
-Three prompts, in sequence, with a routing decision between them:
+Three prompts, with a plan deciding which runs:
 
 ```
-question ──▶ classifier ──┬── "1" ──▶ sql_generator ──▶ SQLite ──▶ formatter
-                          └── "2" ──▶ chat
+question + last 3 exchanges ──▶ planner ──┬── data ──────▶ sql_generator ──▶ SQLite ──▶ formatter
+                                          ├── chat ──────▶ chat
+                                          └── off_topic ─▶ fixed decline (no model call)
 ```
 
-Splitting classification from generation is the most consequential design
-decision here. A combined prompt would have to decide *and* produce SQL in one
-pass, and a model that has just been shown fifteen SQL examples will write SQL
-for "hello". Separating them means the conversational path never sees the
-schema and the SQL path never has to consider small talk.
+Splitting planning from generation is the most consequential design decision
+here. A combined prompt would have to decide *and* produce SQL in one pass, and
+a model that has just been shown fifteen SQL examples will write SQL for
+"hello". Separating them means the SQL path never has to consider small talk,
+and never sees the conversation either: it receives one standalone question.
 
-## The classifier
+## The planner
 
-**One job: output `1` or `2`.** No reasoning, no explanation.
+**One job: return a JSON plan.** The kind of reply, and the question restated
+so it stands on its own:
 
-The existence-check examples do most of the work and are deliberately first:
-
-```
-User Message: "Is there a partner called green?"
-Classification: 1
+```json
+{"kind": "data", "parts": [{"kind": "data", "question": "How many deals did Helix Bridge Holdings Ltd do?"}]}
 ```
 
-Without them the model reads "Is there a partner called X?" as conversation and
-answers from nothing. **That is the worst failure this system can produce:** a
-confident answer about data it never looked at. A wrong SQL query returns
-visibly wrong rows; a hallucinated "no, we have no such partner" is
-indistinguishable from a real answer.
+It sees the last three exchanges - each question, the SQL that answered it,
+and up to ten rows of its result - so "the third one" can be read off the
+previous result and "and for 2024?" can borrow the rest of the previous
+question. The restated question is shown to the user as **Interpreted as**,
+which makes a wrong reading obvious at once rather than leaving it buried in
+the SQL.
 
-Five of the nine examples are existence checks for that reason. It is a
-deliberate imbalance, not an oversight.
+Three rules carry most of the weight:
 
-The classifier is allocated **five tokens**. It previously shared a 200-token
-configuration with the SQL generator, which changed nothing about the output
-and simply reserved capacity it could never use.
+1. **Copy a standalone question exactly.** Single questions then reach the SQL
+   generator unchanged, which is what kept the original suite at 100%. The code
+   enforces it as well: with no earlier exchange there is nothing to resolve,
+   so the question is used as typed whatever the planner returns.
+2. **Anything about the sales data is data, whatever the period.** The first
+   version had one off-topic example, *"Who won the World Cup in 2018?"*, and
+   the model learned that a question with a year in it might be off-topic: it
+   declined *"How many deals were there in 2024?"*. The eval suite caught four
+   such declines; the example was replaced and the rule written down.
+3. **Name end users as end users.** "The second one" from a list of end users
+   must become *"end user Orbit Vertex Data PLC"*, because the SQL generator
+   reads an unqualified company name as a partner.
+
+The reply format is enforced with the chat API's JSON mode. A reply that still
+cannot be parsed falls back to the behaviour before the planner existed: the
+message is treated as a data question, as typed.
+
+**Off-topic requests are declined with a fixed message**, not a generated one:
+one model call instead of two, the same reply every time, and no free text for
+a jailbreak to work on.
 
 ## The SQL generator
 
@@ -105,13 +121,21 @@ the prompt, not a coin toss.
   The cost stands until there is a measured reason to change it.
 - **Letting the model choose its own columns.** Produces a different shape for
   every question and makes the frontend's table rendering unpredictable.
-- **A combined classify-and-generate prompt.** Fewer calls, but it writes SQL
+- **A combined plan-and-generate prompt.** Fewer calls, but it writes SQL
   for greetings.
+- **Sending the conversation to the SQL generator.** It would let the model
+  resolve follow-ups itself, at the cost of changing the prompt the suite had
+  measured at 100%, on every question. Restating the question first keeps the
+  SQL prompt exactly as it was.
 
 ## The conversational prompt
 
-Small, and mostly a set of refusals: answer in one line, no meta-commentary,
-decline off-topic questions and steer back to the data.
+Answers data-related conversation: explaining an earlier answer or its SQL,
+what a column, value or IBM product means, and what Archer can do. It receives
+the conversation and a glossary built from the same column descriptions the
+guide in the app shows (`backend/archer/db/catalogue.py`), and is told to use
+only those - never to invent a figure. Asked for new numbers, it says to ask
+for them as a question.
 
 The capability reply is a fixed string, deliberately. It answers "what can you
 do", which is the first thing most people ask, and it is the one response that

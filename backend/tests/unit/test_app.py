@@ -32,6 +32,14 @@ import pytest
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from starlette.testclient import TestClient
+from archer.ai.planner import Plan, PlannedPart
+
+def _plan_as(kind):
+    """A stand-in for the planner that keeps the question as typed."""
+    def plan(_llm, question, _history=()):
+        return Plan(kind=kind, parts=[PlannedPart(kind=kind, question=question)])
+    return plan
+
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +354,7 @@ def test_api_ask_answers_with_valid_cookie_on_full_app(app_module) -> None:
 
     with patch.object(app_module, "verify_database", mock_dl), \
         patch("archer.pipeline.create_llm", return_value=MagicMock()), \
-        patch("archer.pipeline.classify_query", return_value="2"), \
+        patch("archer.pipeline.plan_message", side_effect=_plan_as("chat")), \
         patch("archer.pipeline.generate_chat_response", return_value=expected):
         with TestClient(app_module.app, follow_redirects=False) as client:
             client.cookies.set("archer_session", create_jwt_token("tester"))

@@ -28,7 +28,7 @@ and passes the second. That is a real distinction: it is not wrong, but it is
 not what was asked for either.
 
 Routing is graded separately. Sending a greeting to the SQL generator wastes a
-call and produces nonsense, so the classifier is measured on its own.
+call and produces nonsense, so the routing decision is measured on its own.
 
 The suite runs the application's own code, not a copy of it: each case goes
 through archer.pipeline.run_turn, the function the API calls, so models,
@@ -67,9 +67,9 @@ from archer.ai.llm import DEFAULT_MODEL_ID  # noqa: E402
 from archer.ai.prompts import prompt_meta  # noqa: E402
 from archer.db import database  # noqa: E402
 from archer.db.query import run_select  # noqa: E402
-from archer.pipeline import run_turn  # noqa: E402
+from archer.pipeline import Part, Turn, build_history_item, execute_query, run_turn  # noqa: E402
 
-PROMPTS = ("classifier", "sql_generator", "chat")
+PROMPTS = ("planner", "sql_generator", "chat")
 
 
 def run_generated(sql: str, database: str) -> tuple[list[tuple] | None, str | None]:
@@ -113,31 +113,76 @@ def value_multiset(rows: list[tuple]) -> set:
     return {normalise_cell(cell) for row in rows for cell in row}
 
 
+def build_history(case: dict) -> list:
+    """
+    A scripted conversation, built without the model.
+
+    Each earlier exchange gives a question and either the SQL that answered it
+    (executed here through the same guarded executor the application uses) or
+    a chat answer. Scripting the history keeps a follow-up case deterministic:
+    it measures the follow-up, not whether the model happened to answer the
+    earlier question the same way twice.
+    """
+    history = []
+    for item in case.get("history", []):
+        if "sql" in item:
+            part = execute_query(item["question"], item["sql"])
+            turn = Turn(kind="data", parts=[part])
+        else:
+            part = Part(type="chat", question=item["question"], text=item.get("answer", ""))
+            turn = Turn(kind="chat", parts=[part])
+        history.append(build_history_item(item["question"], turn))
+    return history
+
+
+def expected_kind(case: dict) -> str:
+    """data, chat or decline. Older cases state a route of data or chat."""
+    return case.get("expect_kind") or case["route"]
+
+
 def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
     """Run one case through the application's pipeline and grade the turn."""
+    want = expected_kind(case)
     result: dict[str, Any] = {
         "id": case["id"],
         "category": case.get("category", "uncategorised"),
         "question": case["question"],
-        "expected_route": case["route"],
+        "expected_route": want,
+        "holdout": bool(case.get("holdout", False)),
     }
 
+    history = build_history(case)
     started = time.monotonic()
-    turn = asyncio.run(run_turn(case["question"]))
+    turn = asyncio.run(run_turn(case["question"], history))
     result["seconds"] = round(time.monotonic() - started, 2)
 
     part = turn.parts[0]
+    result["interpreted_as"] = turn.interpreted_as
     if part.status == "model_error":
         result.update(route="error", route_correct=False, error="model call failed")
         return result
 
     route = part.type
     result["route"] = route
-    result["route_correct"] = route == case["route"]
+    result["route_correct"] = route == want
 
-    # Conversational cases are graded on routing alone: there is no SQL, and
-    # the point is that they never reach the SQL generator.
-    if case["route"] == "chat":
+    # Did the planner restate the question correctly? Checked separately from
+    # the SQL, so a failure says which step went wrong.
+    if "interpreted_must_include" in case:
+        restated = (turn.interpreted_as or part.question).casefold()
+        result["interpretation_correct"] = all(
+            term.casefold() in restated for term in case["interpreted_must_include"]
+        )
+    if case.get("interpreted_none"):
+        result["interpretation_correct"] = turn.interpreted_as is None
+
+    if want != "data":
+        # Chat and decline cases are graded on routing, plus any words the
+        # reply must contain (any one of them, ignoring case).
+        if route == "chat" and "answer_includes_any" in case:
+            text = (part.text or "").casefold()
+            result["answer_correct"] = any(term.casefold() in text for term in case["answer_includes_any"])
+            result["route_correct"] = result["route_correct"] and result["answer_correct"]
         return result
 
     if route != "data":
@@ -176,10 +221,22 @@ def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
     return result
 
 
+def passed(record: dict) -> bool:
+    """A case passes when everything it checks is right."""
+    if record.get("interpretation_correct") is False:
+        return False
+    if record["expected_route"] == "data":
+        return bool(record.get("exact_match"))
+    return bool(record.get("route_correct"))
+
+
 def summarise(results: list[dict]) -> dict:
     """Aggregate the per-case records into the numbers that get published."""
     data_cases = [r for r in results if r["expected_route"] == "data"]
     chat_cases = [r for r in results if r["expected_route"] == "chat"]
+    decline_cases = [r for r in results if r["expected_route"] == "decline"]
+    interpreted = [r for r in results if "interpretation_correct" in r]
+    holdout = [r for r in results if r.get("holdout")]
 
     def pct(numerator: int, denominator: int) -> float:
         return round(100.0 * numerator / denominator, 1) if denominator else 0.0
@@ -190,10 +247,10 @@ def summarise(results: list[dict]) -> dict:
     value = sum(1 for r in data_cases if r.get("value_match"))
 
     by_category: dict[str, dict] = {}
-    for record in data_cases:
+    for record in results:
         bucket = by_category.setdefault(record["category"], {"total": 0, "exact": 0})
         bucket["total"] += 1
-        bucket["exact"] += 1 if record.get("exact_match") else 0
+        bucket["exact"] += 1 if passed(record) else 0
     for name, bucket in by_category.items():
         bucket["accuracy"] = pct(bucket["exact"], bucket["total"])
 
@@ -204,6 +261,13 @@ def summarise(results: list[dict]) -> dict:
         "cases_total": len(results),
         "cases_data": len(data_cases),
         "cases_chat": len(chat_cases),
+        "cases_decline": len(decline_cases),
+        "overall_accuracy": pct(sum(1 for r in results if passed(r)), len(results)),
+        "interpretation_accuracy": pct(
+            sum(1 for r in interpreted if r["interpretation_correct"]), len(interpreted)
+        ),
+        "holdout_accuracy": pct(sum(1 for r in holdout if passed(r)), len(holdout)),
+        "cases_holdout": len(holdout),
         "routing_accuracy": pct(routed, len(results)),
         "sql_valid_rate": pct(valid, len(data_cases)),
         "execution_accuracy": pct(exact, len(data_cases)),
@@ -259,11 +323,14 @@ def main() -> int:
         record["output_tokens"] = sum(u.get("output_tokens", 0) for u in usage.usage_metadata.values())
         results.append(record)
 
-        if case["route"] == "chat":
-            mark = "PASS" if record.get("route_correct") else "FAIL"
+        mark = "PASS" if passed(record) else "FAIL"
+        if record.get("interpretation_correct") is False:
+            detail = f"misread as: {record.get('interpreted_as')}"[:60]
+        elif expected_kind(case) != "data":
             detail = f"routed {record.get('route')}"
+            if record.get("answer_correct") is False:
+                detail += ", reply missing expected words"
         else:
-            mark = "PASS" if record.get("exact_match") else "FAIL"
             if record.get("exact_match"):
                 detail = "exact"
             elif record.get("value_match"):
@@ -278,7 +345,10 @@ def main() -> int:
 
     summary = summarise(results)
     print("\n" + "=" * 62)
-    print(f"Routing accuracy    {summary['routing_accuracy']}%  ({summary['cases_total']} cases)")
+    print(f"Overall             {summary['overall_accuracy']}%  ({summary['cases_total']} cases)")
+    print(f"Routing accuracy    {summary['routing_accuracy']}%")
+    print(f"Interpretation      {summary['interpretation_accuracy']}%")
+    print(f"Hold-out            {summary['holdout_accuracy']}%  ({summary['cases_holdout']} cases)")
     print(f"Valid SQL rate      {summary['sql_valid_rate']}%  ({summary['cases_data']} data cases)")
     print(f"Execution accuracy  {summary['execution_accuracy']}%")
     print(f"Value accuracy      {summary['value_accuracy']}%")

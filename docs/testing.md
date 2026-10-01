@@ -30,6 +30,7 @@ convenience:
 |---|---|
 | SQL extraction | Multi-line and fenced replies, `WITH`, statement ends outside quoted strings, braces in questions |
 | Query guard | Writes, `ATTACH`, `PRAGMA`, internal tables, `load_extension` and second statements refused by SQLite; runaway queries interrupted; row cap |
+| Planner and history | Plans parsed from fenced or noisy replies; invalid plans fall back to a data question as typed; history trimmed to three exchanges and its size limits, the latest never dropped; a role marker in history stays inside the user message; off-topic declined with no second model call; a question is restated only when there is history to resolve |
 | Pipeline | Scalar, table, empty and refused results as structured parts; a NULL sum is empty, not "None"; a model outage is an answer, not a 500; history items are capped; the legacy answer string is unchanged |
 | Prompts | Role markers become chat messages; a marker in user text cannot start one; single-pass substitution; front matter never sent |
 | JWT | Payload, expiry, tampering, wrong signing key |
