@@ -346,3 +346,20 @@ body {
     margin-top: 0.25rem;
   }
 }
+
+// A message answered in several parts: each under the question it answers.
+.archer-answer__part {
+  padding-top: 0.75rem;
+
+  & + & {
+    margin-top: 0.5rem;
+    border-top: 1px dashed var(--cds-border-subtle);
+  }
+}
+
+.archer-answer__part-question {
+  max-width: 75ch;
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+

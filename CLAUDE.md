@@ -38,7 +38,7 @@ survive an interview question.
 ## Validation
 
 ```powershell
-.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 199 tests
+.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 210 tests
 cd frontend; npm run typecheck; npm run build
 ```
 
@@ -103,6 +103,7 @@ claimed before the model is called. Do not weaken or bypass it. Set
 A data question costs roughly 3,500 input tokens: the planner, then the SQL
 generator, whose few-shot examples are most of it. A corrected query adds about
 2,300 and a summary about 300. The budget counts messages, not model calls;
-each message is bounded at a planner, two SQL attempts and one summary.
+each message is bounded at a planner and, for each of at most three parts,
+two SQL attempts and one summary - ten calls at the very most.
 `ARCHER_SQL_RETRY=0` and `ARCHER_SUMMARIES=0` switch those off (the evals'
 `--no-retry` and `--no-summaries` use them to measure what each adds).

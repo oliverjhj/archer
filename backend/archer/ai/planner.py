@@ -31,8 +31,11 @@ from .prompts import render_messages
 HISTORY_TURNS = 3
 HISTORY_ROWS = 10
 
-# Only the first part is acted on until multi-part messages are supported.
-MAX_PARTS = 1
+# A message may ask up to three things. Beyond that the extra parts are
+# dropped and the answer says so: each part can cost a query, a retry and a
+# summary, and the daily budget counts messages.
+MAX_PARTS = 3
+MAX_OPTIONS = 3
 
 
 class PlannedPart(BaseModel):
@@ -40,11 +43,19 @@ class PlannedPart(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
+class Clarification(BaseModel):
+    question: str = Field(min_length=1, max_length=300)
+    options: list[str] = Field(default_factory=list, max_length=10)
+
+
 class Plan(BaseModel):
-    kind: Literal["data", "chat", "off_topic"]
+    kind: Literal["data", "chat", "mixed", "off_topic", "clarify"]
     parts: list[PlannedPart] = Field(default_factory=list, max_length=10)
+    clarification: Optional[Clarification] = None
     # True when the plan is the fallback rather than the model's own.
     fallback: bool = False
+    # How many parts the model asked for before MAX_PARTS was applied.
+    requested_parts: int = 0
 
 
 def _row_text(row: Sequence) -> str:
@@ -99,9 +110,21 @@ def parse_plan(reply: str) -> Optional[Plan]:
         return None
     plan.fallback = False
 
-    # A data or chat plan must say what to answer.
+    if plan.kind == "clarify":
+        # A clarifying question needs something to ask, and is shown with at
+        # most a few short options, each one a question the user could send.
+        if plan.clarification is None:
+            return None
+        plan.clarification.options = [
+            option.strip()[:200] for option in plan.clarification.options if option.strip()
+        ][:MAX_OPTIONS]
+        plan.parts = []
+        return plan
+
+    # A data, chat or mixed plan must say what to answer.
     if plan.kind != "off_topic" and not plan.parts:
         return None
+    plan.requested_parts = len(plan.parts)
     plan.parts = plan.parts[:MAX_PARTS]
     return plan
 
@@ -124,5 +147,5 @@ def plan_message(llm, question: str, history: Sequence = ()) -> Plan:
     if plan is None:
         logging.warning("Planner reply was not a valid plan; falling back. Reply: %.200s", reply)
         return fallback_plan(question)
-    logging.info("Plan: %s %s", plan.kind, [part.question for part in plan.parts])
+    logging.info("Plan: %s %s", plan.kind, [part.question for part in plan.parts] or plan.clarification)
     return plan

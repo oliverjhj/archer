@@ -65,7 +65,7 @@ export function AnswerWorkspace({ entries, busy, onAsk }: AnswerWorkspaceProps) 
   return (
     <section className="archer-answers" aria-live="polite">
       {entries.map((entry) => (
-        <AnswerItem key={entry.id} entry={entry} />
+        <AnswerItem key={entry.id} entry={entry} busy={busy} onAsk={onAsk} />
       ))}
       {/* Scroll anchor for keeping the newest exchange in view. */}
       <div ref={endRef} aria-hidden="true" />
