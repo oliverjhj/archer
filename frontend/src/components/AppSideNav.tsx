@@ -5,12 +5,12 @@ import {
   SideNavItems,
   SideNavLink,
 } from '@carbon/react';
-import { Chat, Help, Search } from '@carbon/icons-react';
+import { Chat, Help, Information } from '@carbon/icons-react';
 
 const REPO_URL = 'https://github.com/oliverjhj/archer-text-to-sql';
 
 interface AppSideNavProps {
-  onOpenSchema: () => void;
+  onOpenGuide: () => void;
 }
 
 // Primary side navigation (IBM Carbon UI Shell).
@@ -18,7 +18,7 @@ interface AppSideNavProps {
 // Every item here does something. They were previously href="#" placeholders,
 // which is worse than having no navigation at all: a visitor clicks, nothing
 // happens, and the whole interface reads as a mockup.
-export function AppSideNav({ onOpenSchema }: AppSideNavProps) {
+export function AppSideNav({ onOpenGuide }: AppSideNavProps) {
   return (
     <SideNav
       aria-label="Primary navigation"
@@ -31,14 +31,14 @@ export function AppSideNav({ onOpenSchema }: AppSideNavProps) {
           Ask
         </SideNavLink>
         <SideNavLink
-          renderIcon={Search}
+          renderIcon={Information}
           href="#"
           onClick={(event: MouseEvent) => {
             event.preventDefault();
-            onOpenSchema();
+            onOpenGuide();
           }}
         >
-          Schema reference
+          How to use Archer
         </SideNavLink>
         <SideNavDivider />
         <SideNavLink

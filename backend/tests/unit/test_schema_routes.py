@@ -10,9 +10,12 @@ Isolation follows the rest of the suite: a minimal FastAPI application holding
 only this router, no real dataset, no network.
 """
 
+import importlib.util
 import os
+import re
 import sqlite3
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +31,7 @@ from archer.auth.jwt import create_jwt_token
 from archer.core.limiter import limiter
 
 _COOKIE_NAME = "archer_session"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _build_test_app() -> FastAPI:
@@ -114,6 +118,57 @@ def test_common_columns_are_flagged() -> None:
     flags = {column["name"]: column["common"] for column in body["columns"]}
     assert flags["customer_name"] is True
     assert flags["revenue"] is True
+
+
+@pytest.mark.unit
+def test_columns_carry_their_descriptions() -> None:
+    path = _make_temp_db()
+    try:
+        with patch("archer.api.schema_routes.database_path", return_value=path):
+            body = _client(create_jwt_token("tester")).get("/api/schema").json()
+    finally:
+        os.unlink(path)
+
+    descriptions = {column["name"]: column["description"] for column in body["columns"]}
+    assert descriptions["revenue"] == schema_routes.COLUMN_DESCRIPTIONS["revenue"]
+
+
+@pytest.mark.unit
+def test_every_generated_column_has_a_description() -> None:
+    """
+    The guide describes every column. Built from the generator's own schema,
+    so adding a column to the dataset without describing it fails here rather
+    than showing a visitor a blank line.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "generate_dataset", _REPO_ROOT / "scripts" / "generate_dataset.py"
+    )
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        generator.create_schema(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sales_data)")}
+    finally:
+        conn.close()
+
+    assert columns == set(schema_routes.COLUMN_DESCRIPTIONS)
+
+
+@pytest.mark.unit
+def test_default_columns_match_the_prompt() -> None:
+    """
+    The guide tells a visitor which columns an answer shows by default; the
+    prompt is what actually decides it. The list is written in both places,
+    so this holds them together.
+    """
+    prompt = (_REPO_ROOT / "prompts" / "sql_generator.md").read_text(encoding="utf-8")
+    match = re.search(r"ALWAYS return EXACTLY these columns: ([a-z_, ]+)\.", prompt)
+    assert match, "Default column rule not found in the SQL prompt"
+
+    prompt_columns = {name.strip() for name in match.group(1).split(",")}
+    assert prompt_columns == schema_routes.COMMON_COLUMNS
 
 
 @pytest.mark.unit

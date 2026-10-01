@@ -67,10 +67,11 @@ frontend/
     main.tsx            React root and Carbon styles
     App.tsx             UI shell composition
     components/         AppHeader, AppSideNav, AskInput, AnswerWorkspace,
-                        AnswerItem, SchemaPanel
+                        AnswerItem, ExampleQuestions, GuidePanel
     api/                client.ts (transport), ask.ts (/api/ask)
     hooks/              useAsk.ts (question state machine), useTheme.ts
-    lib/                answer.ts (answer parsing and table detection)
+    lib/                answer.ts (answer parsing and table detection),
+                        examples.ts (example questions)
     types/              api.ts (request and response types)
     styles/             index.scss (Carbon import and layout)
 ```
