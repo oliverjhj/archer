@@ -42,7 +42,12 @@ body {
   min-height: 100%;
 }
 
+// flow-root stops Carbon's 3rem top margin on the content area collapsing
+// through this wrapper. Collapsed, the margin pushed the whole 100vh wrapper
+// down by the header height, so the page was always 3rem taller than the
+// window and scrolled when it should not.
 .archer-theme {
+  display: flow-root;
   min-height: 100vh;
   background: var(--cds-background);
 }
