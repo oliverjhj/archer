@@ -46,7 +46,7 @@ its query is asking to be trusted without giving you any way to check it, and
   a boundary; SELECT-only enforcement and a read-only connection are.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
-- **Production practices**: 113 tests, four CI jobs, automated deployment,
+- **Production practices**: 116 tests, four CI jobs, automated deployment,
   non-root multi-stage container, scale-to-zero hosting.
 
 ## The number that matters
@@ -117,7 +117,7 @@ Requires an IBM Cloud API key and a watsonx.ai project. See
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 113 tests
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 116 tests
 python evals/run_evals.py                                          # accuracy
 ```
 

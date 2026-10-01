@@ -10,7 +10,7 @@ which need a `.env`, a database, IBM Cloud credentials or any secret.
 | Job | What it does |
 |---|---|
 | `compile-and-validate` | Python 3.12 syntax check (`py_compile`), `pyproject.toml` validation, YAML config validation. |
-| `unit-tests` | `pytest backend/tests/unit -m unit` - 113 tests, fully offline. |
+| `unit-tests` | `pytest backend/tests/unit -m unit` - 116 tests, fully offline. |
 | `frontend` | `npm ci`, type check and production build of the React app on Node 20, matching the Dockerfile build stage. |
 | `docker-build` | Builds the image from `backend/Dockerfile`. Does not run the container. |
 
@@ -19,10 +19,16 @@ needs live credentials. See [`evals.md`](evals.md).
 
 ## Deployment - `workflows/deploy-code-engine.yml`
 
-Manual trigger (`workflow_dispatch`). Builds the image from the repository root,
-pushes it to IBM Container Registry, and updates the IBM Code Engine application
-to the new image. Runtime configuration and secrets live in Code Engine and are
-not read or modified by the workflow.
+Runs automatically when CI completes successfully on a push to `main`, so a
+merge goes live without a manual step and a commit that fails CI never does. It
+can also be run by hand (`workflow_dispatch`) to redeploy without a new commit.
+Deploys run one at a time; a second merge queues behind the first.
+
+It removes superseded images from the registry (keeping the two newest), builds
+the image from the repository root at the commit CI tested, pushes it to IBM
+Container Registry, and updates the IBM Code Engine application to the new
+image. Runtime configuration and secrets live in Code Engine and are not read or
+modified by the workflow.
 
 Needs the `IBM_CLOUD_API_KEY` repository secret and the repository variables
 listed at the top of the workflow file. Provisioning, scaling and cost are
