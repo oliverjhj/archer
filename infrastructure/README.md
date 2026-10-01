@@ -58,8 +58,10 @@ secret value appears in the application definition, the workflow, or the image.
 
 ## Deployment
 
-`.github/workflows/deploy-code-engine.yml`, triggered manually
-(`workflow_dispatch`). It builds the image, pushes it to IBM Container
+`.github/workflows/deploy-code-engine.yml` runs automatically after CI passes
+on a push to `main`, so every merge goes live; it can also be run manually
+(`workflow_dispatch`) to redeploy without a new commit. It clears superseded
+images from the registry, builds the image, pushes it to IBM Container
 Registry, and updates the Code Engine application to the new tag.
 
 Required GitHub secret: `IBM_CLOUD_API_KEY`.
@@ -104,11 +106,16 @@ Professional because it has no fixed monthly fee.
 - **Container Registry:** 512MB storage, 5GB pull traffic per month. Each
   deploy pushes a new SHA-tagged image at roughly 130MB, and although layers
   are shared, **this quota does fill** - a deploy has already failed on it.
-  Old tags need clearing periodically:
+  The deploy workflow now keeps only the two newest images, the running one
+  and one to roll back to, by running `ibmcloud cr retention-run --images 2`
+  before each push. That applies to every repository in the namespace, which
+  is safe only while the `archer` namespace holds this application alone.
+  Deleted images stay in the registry trash for 30 days, outside the quota:
 
   ```bash
-  ibmcloud cr images                       # list
-  ibmcloud cr image-rm <image>:<old-sha>   # remove superseded tags
+  ibmcloud cr images                            # list
+  ibmcloud cr trash-list                        # deleted, restorable
+  ibmcloud cr image-restore <image>:<old-sha>   # bring one back
   ```
 
   The permanent fix is moving to `ghcr.io`, which is free and unlimited for

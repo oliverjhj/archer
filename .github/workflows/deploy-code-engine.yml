@@ -1,7 +1,12 @@
 # .github/workflows/deploy-code-engine.yml
 # Archer Text-to-SQL - Deploy backend to IBM Code Engine.
 #
-# Trigger: Manual only (workflow_dispatch).
+# Trigger: automatically, after CI passes on a push to main; or manually
+# (workflow_dispatch) to redeploy without a new commit.
+#
+# Gated on CI rather than triggered by the push itself, so a commit that fails
+# its tests never reaches the live demo. Previously deploys were manual only,
+# which meant merged work sat unreleased until someone remembered to run this.
 #
 # This workflow builds the Docker image from the repo root, pushes it to IBM
 # Container Registry, and updates the existing Code Engine application to use
@@ -30,17 +35,40 @@
 name: Deploy to IBM Code Engine
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+
+# One deploy at a time. A second merge while a deploy is running queues behind
+# it rather than racing it to update the same application.
+concurrency:
+  group: deploy-code-engine
+  cancel-in-progress: false
 
 jobs:
   deploy:
     name: Build, push, and deploy
+    # workflow_run fires for every CI run on main, passed or failed, and for
+    # pull requests whose head branch is called main. Deploy only a CI pass on
+    # a push to this repository's main.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      # The commit CI actually tested. For workflow_run, github.sha is the tip
+      # of main when this workflow starts, which can already be a newer commit.
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.IMAGE_TAG }}
 
       - name: Install IBM Cloud CLI and plugins
         run: |
@@ -58,17 +86,30 @@ jobs:
       - name: Log in to IBM Container Registry
         run: ibmcloud cr login
 
+      # The free registry tier holds 512MB, each image is roughly 130MB, and a
+      # deploy has already failed on the quota. Keep the two newest images -
+      # the one running now and one to roll back to - and delete the rest
+      # before pushing. Deleted images go to the registry trash for 30 days,
+      # where they can be restored and do not count toward the quota.
+      #
+      # retention-run applies to every repository in the namespace, which is
+      # safe only while the namespace holds this application alone.
+      - name: Remove superseded images
+        run: |
+          ibmcloud cr retention-run --force --images 2 \
+            "${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}"
+
       - name: Build Docker image
         run: |
           docker build \
             -f backend/Dockerfile \
-            -t "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ github.sha }}" \
+            -t "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ env.IMAGE_TAG }}" \
             -t "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:latest" \
             .
 
       - name: Push image to IBM Container Registry
         run: |
-          docker push "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ github.sha }}"
+          docker push "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ env.IMAGE_TAG }}"
           docker push "${{ vars.IBM_CONTAINER_REGISTRY_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:latest"
 
       - name: Select Code Engine project
@@ -80,7 +121,7 @@ jobs:
         run: |
           ibmcloud ce application update \
             --name "${{ vars.IBM_CODE_ENGINE_APP }}" \
-            --image "${{ vars.IBM_CODE_ENGINE_IMAGE_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ github.sha }}" \
+            --image "${{ vars.IBM_CODE_ENGINE_IMAGE_HOSTNAME }}/${{ vars.IBM_CONTAINER_REGISTRY_NAMESPACE }}/archer-backend:${{ env.IMAGE_TAG }}" \
             --registry-secret "${{ vars.IBM_CODE_ENGINE_REGISTRY_SECRET }}"
 
       - name: Show application URL

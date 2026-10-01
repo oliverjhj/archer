@@ -38,7 +38,7 @@ survive an interview question.
 ## Validation
 
 ```powershell
-.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 109 tests
+.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 116 tests
 cd frontend; npm run typecheck; npm run build
 ```
 
