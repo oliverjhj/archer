@@ -137,8 +137,52 @@ def build_history(case: dict) -> list:
 
 
 def expected_kind(case: dict) -> str:
-    """data, chat or decline. Older cases state a route of data or chat."""
+    """data, chat, mixed, decline or clarify. Older cases state a route of data or chat."""
     return case.get("expect_kind") or case["route"]
+
+
+def grade_data(sql: str, expected_sql: str, ordered: bool, conn: sqlite3.Connection, database: str) -> dict:
+    """Grade one generated query against a reference by executing both."""
+    if not sql:
+        return {"sql_valid": False, "exact_match": False, "value_match": False, "error": "no SQL produced"}
+    actual_rows, actual_error = run_generated(sql, database)
+    if actual_error is not None:
+        return {"sql_valid": False, "exact_match": False, "value_match": False, "error": actual_error}
+    expected_rows, expected_error = run_reference(conn, expected_sql)
+    if expected_error is not None:
+        return {"sql_valid": True, "exact_match": False, "value_match": False,
+                "error": f"REFERENCE SQL FAILED: {expected_error}"}
+    return {
+        "sql_valid": True,
+        "exact_match": normalise_rows(actual_rows, ordered) == normalise_rows(expected_rows, ordered),
+        "value_match": value_multiset(expected_rows).issubset(value_multiset(actual_rows)),
+    }
+
+
+def grade_parts(case: dict, turn, conn: sqlite3.Connection, database: str) -> dict:
+    """
+    Grade a message expected to be answered in several parts: the right
+    number of parts, each of the right kind, each answered correctly.
+    """
+    expected = case["parts"]
+    got = turn.parts
+    detail = []
+    ok = len(got) == len(expected)
+    for want, part in zip(expected, got):
+        if part.type != want["kind"]:
+            ok = False
+            detail.append(f"{want['kind']}->{part.type}")
+            continue
+        if want["kind"] == "data":
+            graded = grade_data(part.sql or "", want["expected_sql"], bool(want.get("ordered")), conn, database)
+            ok = ok and graded["exact_match"]
+            detail.append("exact" if graded["exact_match"] else graded.get("error", "wrong result"))
+        elif "answer_includes_any" in want:
+            text = (part.text or "").casefold()
+            found = any(term.casefold() in text for term in want["answer_includes_any"])
+            ok = ok and found
+            detail.append("chat ok" if found else "chat missing words")
+    return {"parts_correct": ok, "parts_detail": detail, "parts_count": len(got)}
 
 
 def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
@@ -159,20 +203,34 @@ def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
 
     part = turn.parts[0]
     result["interpreted_as"] = turn.interpreted_as
-    result["sql_attempts"] = len(turn.trace.get("sql_attempts", []))
-    result["corrected"] = part.corrected
-    if "retry_reason" in turn.trace:
-        result["retry_reason"] = turn.trace["retry_reason"]
-    if "summary" in turn.trace:
-        result["summary_outcome"] = turn.trace["summary"]
-        result["summary"] = part.summary
+    part_traces = turn.trace.get("parts", [turn.trace])
+    result["sql_attempts"] = max((len(t.get("sql_attempts", [])) for t in part_traces), default=0)
+    result["corrected"] = any(p.corrected for p in turn.parts)
+    reasons = [t["retry_reason"] for t in part_traces if "retry_reason" in t]
+    if reasons:
+        result["retry_reason"] = reasons[0]
+    outcomes = [t["summary"] for t in part_traces if "summary" in t]
+    if outcomes:
+        result["summary_outcome"] = outcomes[0]
+        result["summary"] = next((p.summary for p in turn.parts if p.summary), None)
     if part.status == "model_error":
         result.update(route="error", route_correct=False, error="model call failed")
         return result
 
-    route = part.type
+    route = turn.kind if (len(turn.parts) > 1 or turn.kind == "clarify") else part.type
     result["route"] = route
     result["route_correct"] = route == want
+
+    if want == "clarify":
+        # Asked, with at least one option to click.
+        result["route_correct"] = route == "clarify" and bool(part.options)
+        result["clarification"] = part.text
+        return result
+
+    if "parts" in case:
+        result.update(grade_parts(case, turn, conn, database))
+        result["route_correct"] = result["route_correct"] and result["parts_count"] == len(case["parts"])
+        return result
 
     # Did the planner restate the question correctly? Checked separately from
     # the SQL, so a failure says which step went wrong.
@@ -233,6 +291,8 @@ def passed(record: dict) -> bool:
     """A case passes when everything it checks is right."""
     if record.get("interpretation_correct") is False:
         return False
+    if "parts_correct" in record:
+        return bool(record["route_correct"] and record["parts_correct"])
     if record["expected_route"] == "data":
         return bool(record.get("exact_match"))
     return bool(record.get("route_correct"))
@@ -240,7 +300,7 @@ def passed(record: dict) -> bool:
 
 def summarise(results: list[dict]) -> dict:
     """Aggregate the per-case records into the numbers that get published."""
-    data_cases = [r for r in results if r["expected_route"] == "data"]
+    data_cases = [r for r in results if r["expected_route"] == "data" and "parts_correct" not in r]
     chat_cases = [r for r in results if r["expected_route"] == "chat"]
     decline_cases = [r for r in results if r["expected_route"] == "decline"]
     interpreted = [r for r in results if "interpretation_correct" in r]
@@ -346,6 +406,8 @@ def main() -> int:
         mark = "PASS" if passed(record) else "FAIL"
         if record.get("interpretation_correct") is False:
             detail = f"misread as: {record.get('interpreted_as')}"[:60]
+        elif "parts_detail" in record:
+            detail = f"{record.get('route')}, {record['parts_count']} parts: {', '.join(record['parts_detail'])}"[:60]
         elif expected_kind(case) != "data":
             detail = f"routed {record.get('route')}"
             if record.get("answer_correct") is False:

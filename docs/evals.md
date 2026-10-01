@@ -49,7 +49,24 @@ question containing braces) and uses the chat API.
 | Text generation | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
 | Chat API | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
 | Planner (52 cases) | `mistral-small-3-1-24b` | planner v1, SQL v3, chat v3 | 100% | 100% | 100% | 0.89s |
-| **Current: self-correction and summaries (55 cases)** | **`mistral-small-3-1-24b`** | **planner v1, SQL v4, chat v3** | **97.6% data, 98.2% overall** | **100%** | **100%** | **0.95s** |
+| Self-correction and summaries (55 cases) | `mistral-small-3-1-24b` | planner v1, SQL v4, chat v3 | 97.6% data, 98.2% overall | 100% | 100% | 0.95s |
+| **Current: multi-part and clarify (61 cases)** | **`mistral-small-3-1-24b`** | **planner v2, SQL v4, chat v3** | **97.6% data, 98.4% overall** | **100%** | **100%** | **0.97s** |
+
+### Multi-part messages and clarifying questions
+
+Six cases were added: two multi-part messages graded part by part (a data and
+a chat part; two data parts), two messages that must be met with a clarifying
+question, and two hold-outs - a two-part question, and *"Compare that with the
+year before"* with nothing to compare. Every other case doubles as a
+must-not-clarify case: a clear question met with a question fails.
+
+That is what the first run caught. The new cases passed, but *"Show me the top
+5 customers by revenue"* was answered with *"partners or end users?"*. The
+prompt was tightened and the same question was asked again, so the rule was
+moved into code: a clarifying question is only accepted when the message
+contains a word that points at something. The final run scored 98.4% on 61
+cases, the only failure the credit-notes hold-out, and both new hold-outs
+passed.
 
 ### Self-correction and summaries
 
@@ -156,10 +173,12 @@ guessing plausibly, which is the worst kind of wrong.
 Adding a `COLUMN VALUES` section and one disambiguation rule took the faster,
 smaller, cheaper model from 89.3% to 100% - past the larger model it replaced.
 
-## Honesty about the 100%
+## Honesty about the score
 
-**100% on 34 cases is not "100% accurate".** It means the suite has stopped
-finding faults, which is a weaker statement and a normal place to be.
+**A high score on 61 cases is not "accurate".** It means the suite has stopped
+finding faults, which is a weaker statement and a normal place to be. The
+hold-out cases are the partial answer to that: written once, never tuned
+against, and reported when they fail, as one does.
 
 Three caveats belong with that number:
 
@@ -169,8 +188,8 @@ Three caveats belong with that number:
 2. **The dataset is synthetic and fixed.** Real data has nulls in awkward
    places, inconsistent spellings and duplicate entities. None of that is here.
 3. **The questions are well-formed.** Real users ask ambiguous, truncated and
-   contradictory questions. Only one case in this suite is deliberately
-   ambiguous.
+   contradictory questions. A handful of cases now are - follow-ups that
+   only make sense in context, clarifying questions - but most are not.
 
 The right next step is not celebrating the number, it is adding cases that
 break it.

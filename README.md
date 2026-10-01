@@ -46,7 +46,7 @@ its query is asking to be trusted without giving you any way to check it, and
   a boundary; SELECT-only enforcement and a read-only connection are.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
-- **Production practices**: 199 tests, four CI jobs, automated deployment,
+- **Production practices**: 210 tests, four CI jobs, automated deployment,
   non-root multi-stage container, scale-to-zero hosting.
 
 ## The number that matters
@@ -70,8 +70,14 @@ guessed, plausibly and wrongly. **Both models made the same mistake
 independently**, which is what identified it as a prompt gap rather than a model
 weakness.
 
-100% on 52 cases means *no known failures*, not *no failures* - see
-[`docs/evals.md`](docs/evals.md), which says so at more length.
+The suite has since grown to 61 cases - follow-ups, explanations, declines,
+multi-part messages, clarifying questions - and scores **98.4%** with the
+conversational features on. The one failure is a hold-out case, written once
+and never tuned against, and it is reported rather than fixed: asked which
+partner had the most credit notes, the model counts lines rather than
+documents. A high score on a suite you wrote means *no known failures*, not
+*no failures* - see [`docs/evals.md`](docs/evals.md), which says so at more
+length.
 
 ## Architecture
 
@@ -84,6 +90,10 @@ restates it so it stands on its own - shown to the user as *Interpreted as* -
 before the SQL generator sees it. It can also explain an answer or its SQL, and
 politely declines anything that is not about the data. Nothing is stored on the
 server.
+
+One message can ask **up to three things**, each answered in turn, and a
+question that cannot be answered without guessing gets a **clarifying
+question** with options to click rather than a guess.
 
 A query that fails gets **one corrected attempt**, with the error shown to the
 model, and a ranking or breakdown comes with a **one-line summary** - checked
@@ -129,7 +139,7 @@ Requires an IBM Cloud API key and a watsonx.ai project. See
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 199 tests
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 210 tests
 python evals/run_evals.py                                          # accuracy
 ```
 

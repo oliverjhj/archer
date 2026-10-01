@@ -134,6 +134,12 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
           refreshing the page starts afresh; nothing is saved.
         </p>
         <p className="archer-guide__text">
+          You can ask up to three things at once - <em>"revenue in 2023, and
+          what does IBM SOFT mean?"</em> - and each is answered in turn. If a
+          question cannot be answered without guessing, Archer asks what you
+          meant and offers answers you can click.
+        </p>
+        <p className="archer-guide__text">
           It answers questions about this data and the answers it has given.
           Anything else - general knowledge, writing, other topics - it will
           politely decline.

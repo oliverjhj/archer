@@ -61,6 +61,30 @@ The reply format is enforced with the chat API's JSON mode. A reply that still
 cannot be parsed falls back to the behaviour before the planner existed: the
 message is treated as a data question, as typed.
 
+**One message can ask up to three things** (v2). The planner returns a part
+for each - *"revenue in 2023, and what does IBM SOFT mean?"* becomes a data
+part and a chat part - and they are answered in order, each under its own
+heading. A question that only reads like two - *"the top partner and how many
+deals they did"* - stays one, and the SQL generator answers it with a
+subquery. A fourth part is dropped, and the answer says so.
+
+**It asks only when it would otherwise have to guess** (v2): when a message
+points at something the conversation does not contain (*"what about the
+second one?"* with no earlier list), or names nothing at all (*"how did they
+do last year?"*). The reply is a short question with two or three options,
+each a complete question the user can send with one click.
+
+The first draft asked far too often. It met *"How many deals were there in
+2024?"* with *"or how many will there be?"*, *"Show me the biggest deal of
+2025"* with *"biggest by what?"*, and *"Show me the top 5 customers by
+revenue"* with *"partners or end users?"*. The prompt was tightened - a
+question naming a period, partner, product or measure is never ambiguous,
+"customer" means partner, every date is in the past - and the first two were
+fixed. The third was not. So the rule is also enforced in code: a clarifying
+question is accepted only for a message containing a word that points at
+something (*one, it, they, that, those...*); anything else is answered as
+typed. "When unsure, answer" is now certain rather than requested.
+
 **Off-topic requests are declined with a fixed message**, not a generated one:
 one model call instead of two, the same reply every time, and no free text for
 a jailbreak to work on.

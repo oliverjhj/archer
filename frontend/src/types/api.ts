@@ -35,7 +35,7 @@ export type PartStatus =
 
 /** One answer within a turn: a data result or a piece of text. */
 export interface Part {
-  type: 'data' | 'chat' | 'decline';
+  type: 'data' | 'chat' | 'decline' | 'clarify';
   question: string;
   status: PartStatus;
   /** The sentence a person reads first. Always present for a finished part. */
@@ -50,13 +50,17 @@ export interface Part {
   value: string | null;
   summary: string | null;
   corrected: boolean;
+  /** For a clarifying question: answers the user can send with one click. */
+  options: string[];
 }
 
 export interface Turn {
   version: number;
-  kind: 'data' | 'chat' | 'decline' | 'error' | 'budget';
+  kind: 'data' | 'chat' | 'mixed' | 'decline' | 'clarify' | 'error' | 'budget';
   interpreted_as: string | null;
   parts: Part[];
+  /** A note about the whole answer, such as questions left unanswered. */
+  notice: string | null;
   memory: HistoryTurn | null;
 }
 

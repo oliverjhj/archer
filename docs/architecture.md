@@ -46,7 +46,9 @@ One container, one database file, three prompts, and a model call.
    question once any reference to the conversation ("the second one", "and
    for 2024?") is resolved? Off-topic requests get a fixed decline with no
    further model call. Without earlier exchanges the question is used exactly
-   as typed.
+   as typed. A message asking up to three things is split into parts, each
+   answered in turn; one that cannot be answered without guessing gets a
+   clarifying question with options instead.
 4. Data questions go to the **SQL generator** - the restated question,
    never the conversation - which is given the live schema
    read from the database rather than a hardcoded list.

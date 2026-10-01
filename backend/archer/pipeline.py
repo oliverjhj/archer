@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from .ai.chat import generate_chat_response
 from .ai.llm import create_llm
-from .ai.planner import plan_message
+from .ai.planner import fallback_plan, plan_message
 from .ai.sql_generator import generate_sql, regenerate_sql
 from .ai.summary import is_grounded, summarise
 from .db.database import database_path, schema_columns
@@ -79,9 +79,11 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 _SELECT_START = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
 
-PartType = Literal["data", "chat", "decline"]
+PartType = Literal["data", "chat", "decline", "clarify"]
 DataStatus = Literal["ok", "empty", "no_sql", "blocked", "sql_error", "unavailable", "model_error"]
-TurnKind = Literal["data", "chat", "decline", "error", "budget"]
+TurnKind = Literal["data", "chat", "mixed", "decline", "clarify", "error", "budget"]
+
+CLIPPED_NOTICE = "Your message asked more than three things; I answered the first three."
 
 
 class HistoryTurn(BaseModel):
@@ -114,6 +116,8 @@ class Part(BaseModel):
     value: Optional[str] = None
     summary: Optional[str] = None
     corrected: bool = False
+    # For a clarifying question: answers the user can send with one click.
+    options: list[str] = Field(default_factory=list)
     # Why a query failed, for the retry and the logs. Never sent to the
     # browser: database errors are not something a visitor should read.
     error: Optional[str] = Field(default=None, exclude=True)
@@ -127,6 +131,8 @@ class Turn(BaseModel):
     kind: TurnKind
     interpreted_as: Optional[str] = None
     parts: list[Part]
+    # A note about the whole turn, such as parts left unanswered.
+    notice: Optional[str] = None
     memory: Optional[HistoryTurn] = None
     # What happened along the way - SQL attempts, whether a summary was used
     # or dropped. For the logs and the evaluation suite; not sent anywhere.
@@ -409,6 +415,19 @@ def normalise_history(history: Optional[list[HistoryTurn]]) -> list[HistoryTurn]
     return items
 
 
+# Words that point at something rather than naming it. A clarifying question
+# is only accepted for a message containing one, or for "ones" as in "the big
+# ones" - the two situations the planner prompt allows it for.
+_REFERENCE = re.compile(
+    r"\b(one|ones|it|its|they|them|their|those|these|that|this|he|she|his|her)\b",
+    re.IGNORECASE,
+)
+
+
+def _refers_to_something(question: str) -> bool:
+    return bool(_REFERENCE.search(question))
+
+
 def _same_question(a: str, b: str) -> bool:
     """True when two questions differ only in case, spacing or punctuation."""
     def squash(text: str) -> str:
@@ -438,23 +457,66 @@ async def run_turn(question: str, history: Optional[list[HistoryTurn]] = None) -
         turn.memory = build_history_item(question, turn)
         return turn
 
-    planned = plan.parts[0]
-    if not context:
-        # With no earlier exchange there is nothing to resolve, so a restated
-        # question could only be a paraphrase ("partners" for "customers").
-        # The question goes on exactly as typed, which keeps a conversation's
-        # first question behaving as it did before the planner existed.
-        planned = planned.model_copy(update={"question": question})
-    trace: dict = {}
-    part = await (
-        run_data_part(planned.question, trace)
-        if planned.kind == "data"
-        else run_chat_part(planned.question, context)
-    )
+    if plan.kind == "clarify" and not _refers_to_something(question):
+        # The planner may ask only when a message points at something it
+        # cannot resolve. A message with no such word - "Show me the top 5
+        # customers by revenue" - names what it wants, so it is answered as
+        # typed rather than met with a question. The prompt says the same;
+        # this makes it certain.
+        logging.info("Clarifying question overruled: nothing in the message to resolve.")
+        plan = fallback_plan(question)
 
-    kind: TurnKind = "error" if part.status in ("model_error", "unavailable") else part.type
-    interpreted = None if _same_question(planned.question, question) else planned.question
-    turn = Turn(kind=kind, interpreted_as=interpreted, parts=[part], trace=trace)
+    if plan.kind == "clarify" and plan.clarification:
+        # Asked rather than guessed. The question and its options go into
+        # history, so the planner can resolve whatever the user replies.
+        clarify = Part(
+            type="clarify",
+            question=question,
+            text=plan.clarification.question,
+            options=plan.clarification.options,
+        )
+        turn = Turn(kind="clarify", parts=[clarify])
+        turn.memory = build_history_item(question, turn)
+        return turn
+
+    planned_parts = list(plan.parts)
+    if not context and len(planned_parts) == 1:
+        # With no earlier exchange there is nothing to resolve, so a restated
+        # single question could only be a paraphrase ("partners" for
+        # "customers"). It goes on exactly as typed, which keeps a
+        # conversation's first question behaving as it did before the planner
+        # existed. A message split into parts is restated by necessity.
+        planned_parts[0] = planned_parts[0].model_copy(update={"question": question})
+
+    # Parts run one after another: each can be answered on its own, and a
+    # failure in one does not stop the others.
+    parts: list[Part] = []
+    part_traces: list[dict] = []
+    for planned in planned_parts:
+        part_trace: dict = {}
+        part = await (
+            run_data_part(planned.question, part_trace)
+            if planned.kind == "data"
+            else run_chat_part(planned.question, context)
+        )
+        parts.append(part)
+        part_traces.append(part_trace)
+
+    failed = all(part.status in ("model_error", "unavailable") for part in parts)
+    types = {part.type for part in parts}
+    kind: TurnKind = "error" if failed else (parts[0].type if len(types) == 1 else "mixed")
+
+    # "Interpreted as" is for a single restated question. With several
+    # parts, each part's own question is shown above its answer instead.
+    interpreted = None
+    if len(parts) == 1 and not _same_question(planned_parts[0].question, question):
+        interpreted = planned_parts[0].question
+
+    trace = dict(part_traces[0]) if part_traces else {}
+    trace["parts"] = part_traces
+    turn = Turn(kind=kind, interpreted_as=interpreted, parts=parts, trace=trace)
+    if plan.requested_parts > len(parts):
+        turn.notice = CLIPPED_NOTICE
     turn.memory = build_history_item(question, turn)
     return turn
 
@@ -475,6 +537,18 @@ def _clip(text: Optional[str], limit: int) -> Optional[str]:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _part_answer(part: Part) -> str:
+    """One part's answer in a sentence, as history carries it forward."""
+    if part.type == "clarify":
+        options = " / ".join(part.options)
+        return f"{part.text} Options: {options}" if options else (part.text or "")
+    if part.type != "data":
+        return part.text or ""
+    if part.value is not None:
+        return f"{part.text} {part.value}"
+    return part.summary or part.text or ""
+
+
 def build_history_item(question: str, turn: Turn) -> HistoryTurn:
     """
     What this exchange contributes as context to later questions.
@@ -482,18 +556,14 @@ def build_history_item(question: str, turn: Turn) -> HistoryTurn:
     Built by the server, stored by the browser and sent back verbatim, so the
     limits on what history may hold are decided here, once.
     """
-    part = turn.parts[0]
+    with_rows = [p for p in turn.parts if p.rows]
+    part = with_rows[-1] if with_rows else turn.parts[0]
     columns = part.columns[:MEMORY_MAX_COLUMNS]
     rows = [
         [_clip(cell, MEMORY_MAX_CELL) for cell in row[:MEMORY_MAX_COLUMNS]]
         for row in part.rows[:MEMORY_MAX_ROWS]
     ]
-    if part.type != "data":
-        answer = part.text
-    elif part.value is not None:
-        answer = f"{part.text} {part.value}"
-    else:
-        answer = part.summary or part.text
+    answer = " ".join(_part_answer(p) for p in turn.parts if _part_answer(p))
     return HistoryTurn(
         question=_clip(question, 1000),
         interpreted=_clip(turn.interpreted_as, 1000),
@@ -505,6 +575,8 @@ def build_history_item(question: str, turn: Turn) -> HistoryTurn:
 
 
 def _legacy_part(part: Part) -> str:
+    if part.type == "clarify":
+        return "\n".join([part.text or ""] + [f"- {option}" for option in part.options])
     if part.type != "data" or part.status in ("no_sql", "blocked", "sql_error", "unavailable", "model_error"):
         return part.text or ""
 
@@ -524,5 +596,18 @@ def _legacy_part(part: Part) -> str:
 
 
 def format_legacy(turn: Turn) -> str:
-    """The Markdown answer string Archer has always returned."""
-    return "\n\n".join(_legacy_part(part) for part in turn.parts)
+    """
+    The Markdown answer string Archer has always returned. A message with
+    several parts gets each under its own heading, and a clarifying question
+    lists its options.
+    """
+    if len(turn.parts) == 1:
+        body = _legacy_part(turn.parts[0])
+    else:
+        body = "\n\n".join(
+            f"**{index}. {part.question}**\n\n{_legacy_part(part)}"
+            for index, part in enumerate(turn.parts, start=1)
+        )
+    if turn.notice:
+        body += f"\n\n*(Note: {turn.notice})*"
+    return body

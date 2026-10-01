@@ -102,9 +102,10 @@ summary on some:
 | Off-topic, declined | about 1,400 | about £0.00016 |
 
 The daily ceiling counts messages, not model calls, and every message is
-bounded: a planner, at most two SQL attempts, and at most one summary. At
-200 messages that is roughly **8p a day** in typical use and about **15p** if
-every message took the most expensive path. Before the conversational features
+bounded: a planner, and for each of at most three parts, two SQL attempts and
+one summary. At 200 messages that is roughly **8p a day** in typical use; if
+every message asked three questions and every query needed correcting, about
+**35p**. Before the conversational features
 it was about 5p. It is why an approximate per-process counter is an adequate
 control rather than a compromise.
 

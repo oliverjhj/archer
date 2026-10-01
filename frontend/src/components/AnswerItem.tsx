@@ -13,9 +13,12 @@ import {
 import { parseAnswer } from '../lib/answer';
 import type { AnswerBlock, TextSpan } from '../lib/answer';
 import type { ConversationEntry, Part } from '../types/api';
+import { ExampleQuestions } from './ExampleQuestions';
 
 interface AnswerItemProps {
   entry: ConversationEntry;
+  busy: boolean;
+  onAsk: (question: string) => void;
 }
 
 function ResultTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
@@ -96,7 +99,20 @@ function Prose({ text }: { text: string }) {
 }
 
 /** One part of a structured answer. */
-function PartView({ part }: { part: Part }) {
+function PartView({ part, busy, onAsk }: { part: Part; busy: boolean; onAsk: (q: string) => void }) {
+  if (part.type === 'clarify') {
+    // Asked rather than guessed. Each option is a complete question, so a
+    // click sends it as the next message.
+    return (
+      <>
+        <Prose text={part.text ?? ''} />
+        {part.options.length > 0 && (
+          <ExampleQuestions questions={part.options} disabled={busy} onAsk={onAsk} />
+        )}
+      </>
+    );
+  }
+
   if (part.type !== 'data' || !['ok', 'empty'].includes(part.status)) {
     return <Prose text={part.text ?? ''} />;
   }
@@ -160,7 +176,10 @@ function LegacyAnswer({ answer }: { answer: string }) {
  * Everything is rendered as React elements from structured data or parsed
  * text. Nothing is injected as HTML, so model output cannot become markup.
  */
-export function AnswerItem({ entry }: AnswerItemProps) {
+export function AnswerItem({ entry, busy, onAsk }: AnswerItemProps) {
+  const parts = entry.turn?.parts ?? [];
+  const several = parts.length > 1;
+
   return (
     <article className="archer-turn">
       <div className="archer-turn__question">
@@ -206,8 +225,21 @@ export function AnswerItem({ entry }: AnswerItemProps) {
           </p>
         )}
 
+        {/*
+          A message that asked several things is answered part by part, each
+          under the question it answers, as Archer understood it.
+        */}
         {!entry.pending && !entry.error && entry.turn &&
-          entry.turn.parts.map((part, index) => <PartView key={index} part={part} />)}
+          parts.map((part, index) => (
+            <div key={index} className={several ? 'archer-answer__part' : undefined}>
+              {several && <p className="archer-answer__part-question">{part.question}</p>}
+              <PartView part={part} busy={busy} onAsk={onAsk} />
+            </div>
+          ))}
+
+        {!entry.pending && !entry.error && entry.turn?.notice && (
+          <p className="archer-answer__note">{entry.turn.notice}</p>
+        )}
 
         {!entry.pending && !entry.error && !entry.turn && entry.answer && (
           <LegacyAnswer answer={entry.answer} />

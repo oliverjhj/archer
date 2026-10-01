@@ -502,6 +502,60 @@
   category: decline
 
 # ---------------------------------------------------------------------------
+# Multi-part messages
+#
+# One message, several questions. Graded part by part: the right number of
+# parts, each of the right kind, each answered correctly.
+# ---------------------------------------------------------------------------
+
+- id: multipart-data-and-chat
+  question: What was the total revenue in 2023, and what does IBM SOFT mean?
+  route: data
+  expect_kind: mixed
+  category: multipart
+  parts:
+    - kind: data
+      expected_sql: >
+        SELECT SUM(revenue) FROM sales_data
+        WHERE STRFTIME('%Y', document_date) = '2023'
+    - kind: chat
+      answer_includes_any: [software]
+
+- id: multipart-two-years
+  question: How many deals were there in 2022, and how many in 2023?
+  route: data
+  category: multipart
+  parts:
+    - kind: data
+      expected_sql: >
+        SELECT COUNT(DISTINCT document_number) FROM sales_data
+        WHERE STRFTIME('%Y', document_date) = '2022'
+    - kind: data
+      expected_sql: >
+        SELECT COUNT(DISTINCT document_number) FROM sales_data
+        WHERE STRFTIME('%Y', document_date) = '2023'
+
+# ---------------------------------------------------------------------------
+# Clarifying questions
+#
+# Asked only when a message cannot be answered without guessing. Every other
+# case in this file doubles as a must-not-clarify case: a clear question met
+# with a question fails.
+# ---------------------------------------------------------------------------
+
+- id: clarify-no-earlier-list
+  question: How many deals did the third one do?
+  route: chat
+  expect_kind: clarify
+  category: clarify
+
+- id: clarify-no-subject
+  question: How did they do last year?
+  route: chat
+  expect_kind: clarify
+  category: clarify
+
+# ---------------------------------------------------------------------------
 # Hold-out
 #
 # Written once and run; never tuned against. If a prompt change is made to
@@ -585,3 +639,28 @@
     SELECT customer_name, COUNT(DISTINCT document_number) FROM sales_data
     WHERE document_type = 'Credit' AND STRFTIME('%Y', document_date) = '2023'
     GROUP BY customer_name ORDER BY COUNT(DISTINCT document_number) DESC LIMIT 1
+
+# Multi-part and clarify hold-outs, written before any run against them.
+- id: holdout-multipart-ranking-and-existence
+  holdout: true
+  question: Which item group had the most revenue in 2024, and is there a partner called Falcon?
+  route: data
+  category: holdout
+  parts:
+    - kind: data
+      expected_sql: >
+        SELECT item_group, SUM(revenue) FROM sales_data
+        WHERE STRFTIME('%Y', document_date) = '2024'
+        GROUP BY item_group ORDER BY SUM(revenue) DESC LIMIT 1
+    - kind: data
+      expected_sql: >
+        SELECT DISTINCT customer_name FROM sales_data
+        WHERE LOWER(customer_name) LIKE '%falcon%'
+
+- id: holdout-clarify-compare
+  holdout: true
+  question: Compare that with the year before
+  route: chat
+  expect_kind: clarify
+  category: holdout
+
