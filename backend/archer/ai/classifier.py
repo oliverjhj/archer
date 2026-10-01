@@ -1,27 +1,26 @@
 import re
 import logging
 
-from .prompts import render
+from .llm import complete
+from .prompts import render_messages
 
-def classify_query(llm, user_query_escaped: str) -> str:
+
+def classify_query(llm, user_query: str) -> str:
     """
-    Classify user query as either database query (1) or general chat (2).
-    
+    Classify a question as a database query (1) or general chat (2).
+
     Args:
-        llm: WatsonxLLM instance
-        user_query_escaped: User query with escaped special characters
-        
+        llm: chat model client (see archer.ai.llm.create_llm)
+        user_query: the question, as the user typed it
+
     Returns:
         str: "1" for database query, "2" for general chat
     """
-    classifier_prompt = render("classifier", USER_QUERY=user_query_escaped)
-    
-    raw_classification = llm.invoke(classifier_prompt).strip()
+    raw_classification = complete(llm, render_messages("classifier", USER_QUERY=user_query))
     logging.info(f"AI Classification Output: {raw_classification}")
-    
+
     match = re.search(r'[12]', raw_classification)
     route_decision = match.group(0) if match else "2"
     logging.info(f"Route Decision: {route_decision} ({'DATA QUERY' if route_decision == '1' else 'GENERAL CHAT'})")
-    
-    return route_decision
 
+    return route_decision

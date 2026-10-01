@@ -36,13 +36,32 @@ existence checks, listing, and conversational routing.
 
 ## Results
 
-All runs use the same 33 cases and the same generated dataset.
+All runs use the same generated dataset. The first three use the original 33
+cases on the text-generation API; the current run adds one regression case (a
+question containing braces) and uses the chat API.
 
 | Run | Model | Prompts | Execution accuracy | Routing | Valid SQL | Median latency |
 |---|---|---|---|---|---|---|
 | Baseline | `llama-3-3-70b-instruct` | v2 | 92.9% | 100% | 100% | 7.25s |
 | Baseline | `mistral-small-3-1-24b` | v2 | 89.3% | 100% | 100% | 0.83s |
-| **Current** | **`mistral-small-3-1-24b`** | **v3** | **100%** | **100%** | **100%** | **0.50s** |
+| Text generation | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
+| **Current, chat API** | **`mistral-small-3-1-24b`** | **v3** | **100%** | **100%** | **100%** | **0.50s** |
+
+### Moving to the chat API
+
+IBM deprecated the text-generation API the application used, so model calls
+moved to the chat API. The prompts were sent unchanged, each as a single user
+message, to isolate the effect of the API alone. On the same day the
+text-generation baseline scored 100% on the original 33 cases; the chat API
+scored 100% on all 34, identically across two runs at temperature 0, at the
+same median latency and token count. No prompt change was needed, so none was
+made.
+
+One case written for this step failed and was removed rather than tuned for:
+*"What was the average deal value in 2025?"* The model averaged line revenue
+within each deal instead of averaging deal totals. That is a real gap in the
+SQL prompt, present on either API, and it belongs with the next prompt change,
+not with a migration meant to change nothing.
 
 ### What this says about the v2.6.0 claim
 
@@ -81,7 +100,7 @@ smaller, cheaper model from 89.3% to 100% - past the larger model it replaced.
 
 ## Honesty about the 100%
 
-**100% on 33 cases is not "100% accurate".** It means the suite has stopped
+**100% on 34 cases is not "100% accurate".** It means the suite has stopped
 finding faults, which is a weaker statement and a normal place to be.
 
 Three caveats belong with that number:
@@ -125,6 +144,11 @@ python evals/run_evals.py --output evals/results/run.json    # full record
 python evals/run_evals.py --only credit-total                # one case
 ```
 
+The suite runs the application's own code: models come from `create_llm` and
+generated SQL executes through `run_select`, so what it measures is what the
+demo runs. Each results file records the model, the version of every prompt,
+and input and output tokens per case.
+
 Requires `IBM_API_KEY` and `PROJECT_ID`, and a built dataset (`python
 scripts/generate_dataset.py`). Set `DEMO_DAILY_QUESTION_LIMIT=0` to run
 unmetered.
@@ -145,8 +169,9 @@ Measured against the live prompts:
 | Conversational | 302 |
 
 A data question costs roughly **2,300 tokens**, almost all of it the SQL
-generator's few-shot examples. A full 33-case run is therefore around 60,000
-tokens.
+generator's few-shot examples. The suite now records usage per case: on the
+chat API the median data question is **2,247 input tokens**, and a full
+34-case run is about 66,000 tokens in and 1,000 out.
 
 In money, measured against the actual bill rather than estimated: **89 Resource
 Units - roughly 89,000 tokens - cost £0.01**. That puts a question at about

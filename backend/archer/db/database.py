@@ -76,6 +76,21 @@ def verify_database() -> bool:
     return True
 
 
+def schema_columns() -> tuple[str, ...]:
+    """
+    The column names of sales_data, in table order.
+
+    Read on its own connection, because the connection that runs generated SQL
+    refuses PRAGMA by design. Not cached: it takes well under a millisecond,
+    and an uncached read cannot go stale when tests point the path elsewhere.
+    """
+    conn = sqlite3.connect(f"file:{database_path()}?mode=ro", uri=True)
+    try:
+        return tuple(row[1] for row in conn.execute("PRAGMA table_info(sales_data)"))
+    finally:
+        conn.close()
+
+
 @lru_cache(maxsize=1)
 def dataset_date_range() -> tuple[str, str]:
     """

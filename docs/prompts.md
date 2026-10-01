@@ -123,17 +123,20 @@ correct on the day it is written and quietly wrong from 1 January onwards.
 
 ## Prompt injection
 
-User input is escaped before it reaches any prompt: braces are doubled and
-triple-quote sequences removed, so input cannot terminate or restructure the
-surrounding template.
+A prompt is split into its chat messages before any value is substituted,
+and substitution is a single pass that never re-reads what it inserted. So a
+question cannot start a new message - a role marker typed into a question is
+just text - and cannot pull another value into the prompt.
 
-That is a mitigation, not a solution, and the boundary is worth being honest
-about. The real defences are downstream and structural:
+That keeps the prompt's structure intact, and no more. The real defences are
+downstream and structural, enforced by SQLite on the only connection that runs
+generated SQL (see [`security.md`](security.md)):
 
-- the generated SQL must start with `SELECT` or it is refused
-- `ATTACH`, `DETACH` and `PRAGMA` are blocked, and statements are split on `;`
-- the database is opened **read-only**
-- results are capped at 100 rows
+- the connection is opened **read-only**
+- an authorizer permits reading `sales_data` and nothing else - no `PRAGMA`,
+  `ATTACH`, `load_extension` or internal tables
+- only one statement can run, and it must start with `SELECT` or `WITH`
+- a deadline interrupts runaway queries, and results are capped at 100 rows
 
 An injection that persuades the model to write `DROP TABLE` produces a refused
 query and a log line, not a dropped table. **The prompt is not a security
@@ -151,3 +154,26 @@ change that altered no words at all - dropped accuracy from 89.3% to 10.7%,
 because the loader stripped a trailing newline that told the model to start
 writing on a new line. Every one of the unit tests passed. Only the evals saw
 it.
+
+## How a prompt becomes chat messages
+
+The application uses the watsonx **chat** API, which takes a list of messages
+with roles rather than one block of text. A prompt file marks where each
+message starts with an HTML comment, which keeps the file readable as
+Markdown:
+
+```markdown
+<!-- role: system -->
+You are a SQLite expert...
+
+<!-- role: user -->
+{{USER_QUERY}}
+```
+
+A prompt with no markers is sent as a single user message. The three current
+prompts have none: they were written for the text-generation API, and sent
+unchanged as one message they score the same 100% (see
+[`evals.md`](evals.md)), so restructuring them would have been change without
+a measured reason. The trailing-newline fragility above belonged to the
+text-generation API; the chat API wraps each message in the model's own
+template, so it no longer applies.

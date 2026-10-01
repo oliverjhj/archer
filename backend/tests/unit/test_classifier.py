@@ -15,13 +15,15 @@ Behaviour under test (classifier.py):
 import pytest
 from unittest.mock import MagicMock
 
+from langchain_core.messages import AIMessage
+
 from archer.ai.classifier import classify_query
 
 
 def _mock_llm(response: str) -> MagicMock:
-    """Return a MagicMock LLM whose .invoke() returns the given string."""
+    """Return a MagicMock chat model whose .invoke() replies with the given text."""
     llm = MagicMock()
-    llm.invoke.return_value = response
+    llm.invoke.return_value = AIMessage(content=response)
     return llm
 
 

@@ -38,7 +38,7 @@ survive an interview question.
 ## Validation
 
 ```powershell
-.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 116 tests
+.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 150 tests
 cd frontend; npm run typecheck; npm run build
 ```
 
@@ -61,13 +61,22 @@ an element exists cannot tell you a user can reach it.
   paths. Both halves are pinned by tests.
 - Model calls go through `asyncio.to_thread`: the watsonx SDK is synchronous
   and would otherwise block the event loop for the whole round trip.
-- Prompts live in `prompts/*.md`, loaded at runtime. **Trailing whitespace is
-  load-bearing** - stripping the final newline once took accuracy from 89% to
-  11% while every unit test passed.
+- Model calls use the watsonx **chat** API (`ChatWatsonx`), built by
+  `create_llm(task)` and called through `complete()` in `archer/ai/llm.py`.
+  The text-generation API is deprecated by IBM and no longer used.
+- Prompts live in `prompts/*.md`, loaded at runtime and sent as chat messages.
+  `<!-- role: system|user|assistant -->` markers split a prompt into messages;
+  a prompt without markers is one user message. Values are substituted after
+  the split, in one pass, so user text cannot create a message. A prompt
+  change that alters no words can still move accuracy - it once fell from 89%
+  to 11% while every unit test passed - so run the evals regardless.
 - `sales.db` is generated at image build time by `scripts/generate_dataset.py`,
   from a fixed seed. Regenerate locally before running anything.
-- SQL safety - SELECT-only, blocked keywords, read-only connection, row cap -
-  is load-bearing and covered by tests. Treat it as such.
+- SQL safety lives in `archer/db/query.py`: `run_select` is the only way
+  generated SQL runs - read-only connection, an authorizer permitting reads of
+  `sales_data` only, one statement, a deadline, a row cap. It is load-bearing
+  and covered by `test_query_guard.py`. Never execute generated SQL any other
+  way.
 
 ## Cost
 

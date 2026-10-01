@@ -1,26 +1,24 @@
 from ..db.database import dataset_date_range
-from .prompts import render
+from .llm import complete
+from .prompts import render_messages
 
 
-def generate_chat_response(llm, user_query_escaped: str) -> str:
+def generate_chat_response(llm, user_query: str) -> str:
     """
-    Generate general chat response using Archer persona.
-    
+    Generate a conversational reply in the Archer persona.
+
     Args:
-        llm: WatsonxLLM instance
-        user_query_escaped: User query with escaped special characters
-        
+        llm: chat model client (see archer.ai.llm.create_llm)
+        user_query: the question, as the user typed it
+
     Returns:
-        str: Chat response
+        str: the reply
     """
     date_from, date_to = dataset_date_range()
-    chat_prompt = render(
+    messages = render_messages(
         "chat",
-        USER_QUERY=user_query_escaped,
+        USER_QUERY=user_query,
         DATE_FROM=date_from or "the start of the dataset",
         DATE_TO=date_to or "the most recent record",
     )
-    
-    chat_response = llm.invoke(chat_prompt).strip()
-    return chat_response
-
+    return complete(llm, messages)
