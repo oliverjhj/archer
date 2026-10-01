@@ -22,6 +22,7 @@ _MAX_TOKENS = {
     "planner": 300,
     "sql": 400,
     "chat": 350,
+    "summary": 150,
 }
 
 # The planner must reply with JSON. The chat API can enforce that, which

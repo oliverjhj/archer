@@ -1,10 +1,14 @@
 ---
 name: sql_generator
-version: 3
-updated: 2026-09-01
+version: 4
+updated: 2026-10-01
 task: Convert a natural-language question into a single SQLite SELECT statement.
 placeholders: [TODAY, SCHEMA, USER_QUERY]
 changes: |
+  v4 - Added rule 4b, DEAL VALUES. Asked for "the average deal value", the
+       model averaged line revenue within each deal instead of averaging
+       deal totals - a gap the evaluation suite found and recorded when the
+       chat API was introduced.
   v3 - Added the COLUMN VALUES section and the unqualified-name default rule.
        Both were driven by evaluation failures rather than by intuition; see
        docs/prompts.md. De-branded the examples: the partner names were real
@@ -38,6 +42,7 @@ CRITICAL RULES:
    - end_user_country and customer_country: 'GBR'
    - renewal_term_months: '-', '1.0', '3.0', '12.0', '24.0', '36.0'
 4. COUNTING DEALS: If asked "number of deals" or "how many deals", use COUNT(DISTINCT document_number).
+4b. DEAL VALUES: Only when the question asks about the value of deals - the average, smallest or largest deal value - total each deal first in a subquery (SUM(revenue) GROUP BY document_number), then take AVG, MIN or MAX of those totals. This rule does not change how "most" or "biggest" are measured in any other question.
 5. SHOWING DEALS/LINES: If asked to show deal lines, use the default columns and ALWAYS append ORDER BY document_number, document_date DESC so lines from the same deal are grouped visually.
 6. LIMITING/SORTING DEALS: If asked for the "last X deals" or "top X deals", you MUST use a subquery to find the deal IDs first.
    - For "last X deals": WHERE document_number IN (SELECT DISTINCT document_number FROM sales_data ORDER BY document_date DESC LIMIT X)

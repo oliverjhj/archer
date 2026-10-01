@@ -52,9 +52,13 @@ One container, one database file, three prompts, and a model call.
    read from the database rather than a hardcoded list.
 5. The generated SQL is executed through `run_select`: a read-only connection
    whose SQLite authorizer permits reading `sales_data` and nothing else, one
-   statement, a deadline and a 100-row cap. The result is formatted as
-   Markdown.
-6. Conversational questions go to the **chat prompt** and never see the schema.
+   statement, a deadline and a 100-row cap. A query that fails, or finds
+   nothing where something was expected, gets **one corrected attempt** - kept
+   only if it does better, and never after a refusal by the guard.
+6. A ranking or breakdown gets a **written summary**, checked before it is
+   shown: every number in it must appear in the result, or it is dropped.
+7. Conversational questions go to the **chat prompt**, which explains from the
+   conversation and a glossary rather than querying.
 
 Model calls are dispatched with `asyncio.to_thread`. The watsonx SDK is
 synchronous, and calling it directly from an async handler would block the
@@ -117,7 +121,8 @@ backend/archer/
 │   ├── llm.py             per-task watsonx chat clients
 │   ├── prompts.py         prompt loading from prompts/*.md
 │   ├── planner.py         kind of reply, and the question restated
-│   ├── sql_generator.py   SQL generation and extraction
+│   ├── sql_generator.py   SQL generation, extraction, one retry
+│   ├── summary.py         result summaries and the check on their figures
 │   └── chat.py            conversational replies
 ├── auth/                  JWT and CSRF
 ├── core/

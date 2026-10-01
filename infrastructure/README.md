@@ -89,10 +89,24 @@ Measured, not estimated:
 | Container Registry | Free | £0.00 |
 | watsonx.ai Runtime | Essentials | **£0.01 per 89 Resource Units** |
 
-That puts a question at roughly **£0.00026**, and the 200-question daily
-ceiling at about **5p a day** even if the demo is hammered. It is why an
-approximate per-process counter is an adequate control rather than a
-compromise.
+What a message costs depends on what it needs, because the conversational
+features add model calls - a planner on every message, and a retry or a
+summary on some:
+
+| Message | Input tokens (median) | Cost |
+|---|---|---|
+| Data question | about 3,500 | about £0.0004 |
+| ... with a written summary | about 3,800 | about £0.0004 |
+| ... with a corrected query | about 5,700 | about £0.0006 |
+| Data-related chat | about 2,500 | about £0.0003 |
+| Off-topic, declined | about 1,400 | about £0.00016 |
+
+The daily ceiling counts messages, not model calls, and every message is
+bounded: a planner, at most two SQL attempts, and at most one summary. At
+200 messages that is roughly **8p a day** in typical use and about **15p** if
+every message took the most expensive path. Before the conversational features
+it was about 5p. It is why an approximate per-process counter is an adequate
+control rather than a compromise.
 
 **watsonx.ai started on the Lite plan and had to move.** Lite is genuinely
 free and fails safe - it returns `token_quota_reached` rather than billing -

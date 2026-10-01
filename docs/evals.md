@@ -48,7 +48,36 @@ question containing braces) and uses the chat API.
 | Baseline | `mistral-small-3-1-24b` | v2 | 89.3% | 100% | 100% | 0.83s |
 | Text generation | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
 | Chat API | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
-| **Current, planner (52 cases)** | **`mistral-small-3-1-24b`** | **planner v1, SQL v3, chat v3** | **100%** | **100%** | **100%** | **0.89s** |
+| Planner (52 cases) | `mistral-small-3-1-24b` | planner v1, SQL v3, chat v3 | 100% | 100% | 100% | 0.89s |
+| **Current: self-correction and summaries (55 cases)** | **`mistral-small-3-1-24b`** | **planner v1, SQL v4, chat v3** | **97.6% data, 98.2% overall** | **100%** | **100%** | **0.95s** |
+
+### Self-correction and summaries
+
+A query that fails, or finds nothing where something was expected, now gets
+one corrected attempt: the model sees its own query and the error. On the
+suite, **first attempts alone scored 95.1% on data questions; with the retry,
+97.6%**. The one case it rescued failed first with *"no such column:
+revenue"* and passed on the second attempt. The retry is never used after a
+refusal by the query guard, nor after an empty existence check, where "no such
+partner" is the right answer - and it is kept only if it does better.
+
+The SQL prompt went to v4 with one rule, for deal values: the average,
+smallest or largest *deal* is a total per document, aggregated afterwards. Its
+first wording overreached - the model began measuring "most licences" by
+revenue - and was narrowed. That case had been a hold-out; since a prompt
+change was made because of it, it no longer is, and a new hold-out was
+written to replace it before any run against it.
+
+**That new hold-out fails**, and is reported rather than tuned for: asked
+*"Which partner had the most credit notes in 2023?"*, the model counts lines
+rather than distinct documents. Hold-out accuracy is 5 of 6, which is the
+honest figure for behaviour the suite was not written around.
+
+Summaries are written for rankings and breakdowns only - not single values,
+lists of names, or deal lines, where the model was seen to call two lines of
+one deal "the biggest deal" and "the second biggest". Every number in a
+summary must appear in the rows it was given; one draft in the final run
+failed that check and was dropped, leaving the table on its own.
 
 ### Adding the planner
 
@@ -203,12 +232,22 @@ chat API the median data question is **2,247 input tokens**, and a full
 34-case run is about 66,000 tokens in and 1,000 out.
 
 In money, measured against the actual bill rather than estimated: **89 Resource
-Units - roughly 89,000 tokens - cost £0.01**. That puts a question at about
-**£0.00026**, a full evaluation run at under a penny, and a thousand questions
-at around **26p**.
+Units - roughly 89,000 tokens - cost £0.01**. Before the conversational
+features that put a question at about **£0.00026**. With them, measured by the
+suite:
 
-Two things follow from that. The daily ceiling of 200 questions caps the demo
-at roughly **5p a day** even if it is hammered, which is why an approximate
+| Message | Input tokens (median) | Cost |
+|---|---|---|
+| Data question | about 3,500 | about £0.0004 |
+| ... with a written summary | about 3,800 | about £0.0004 |
+| ... with a corrected query | about 5,700 | about £0.0006 |
+| Data-related chat | about 2,500 | about £0.0003 |
+| Off-topic, declined | about 1,400 | about £0.00016 |
+
+A full 55-case run is about 180,000 tokens, roughly 2p.
+
+Two things follow from that. The daily ceiling of 200 messages caps the demo
+at roughly **8p a day** in typical use and about 15p at worst, which is why an approximate
 per-process counter is an entirely adequate control. And the cost is so low
 that the 88% concentration in the few-shot examples is not worth optimising -
 it would be engineering effort spent to save pennies, and the examples are what
