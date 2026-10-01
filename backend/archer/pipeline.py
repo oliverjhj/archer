@@ -31,11 +31,17 @@ from pydantic import BaseModel, Field
 from .ai.chat import generate_chat_response
 from .ai.llm import create_llm
 from .ai.planner import plan_message
-from .ai.sql_generator import generate_sql
+from .ai.sql_generator import generate_sql, regenerate_sql
+from .ai.summary import is_grounded, summarise
 from .db.database import database_path, schema_columns
 from .db.query import QueryBlocked, run_select
 
 TURN_VERSION = 1
+
+# Self-correction and summaries can be switched off, which is how the
+# evaluation suite measures what each one adds. Both are on in production.
+SQL_RETRY = os.environ.get("ARCHER_SQL_RETRY", "1").strip() != "0"
+SUMMARIES = os.environ.get("ARCHER_SUMMARIES", "1").strip() != "0"
 
 # What a history item may carry back into a prompt. Kept small on purpose: it
 # is resent with every question, and it is text the browser supplies.
@@ -108,6 +114,12 @@ class Part(BaseModel):
     value: Optional[str] = None
     summary: Optional[str] = None
     corrected: bool = False
+    # Why a query failed, for the retry and the logs. Never sent to the
+    # browser: database errors are not something a visitor should read.
+    error: Optional[str] = Field(default=None, exclude=True)
+    # Whether the raw result held any numbers. A summary is only worth
+    # writing for figures; a list of names speaks for itself.
+    has_numbers: bool = Field(default=False, exclude=True)
 
 
 class Turn(BaseModel):
@@ -116,6 +128,9 @@ class Turn(BaseModel):
     interpreted_as: Optional[str] = None
     parts: list[Part]
     memory: Optional[HistoryTurn] = None
+    # What happened along the way - SQL attempts, whether a summary was used
+    # or dropped. For the logs and the evaluation suite; not sent anywhere.
+    trace: dict = Field(default_factory=dict, exclude=True)
 
 
 class ModelError(Exception):
@@ -174,30 +189,119 @@ async def _call_model(function, *args):
         raise ModelError(str(exc)) from exc
 
 
-async def run_data_part(question: str) -> Part:
-    """Generate SQL for a question, run it, and describe the result."""
-    part = Part(type="data", question=question)
+_EXISTENCE_CHECK = re.compile(r"\bDISTINCT\b[\s\S]*\bLIKE\b", re.IGNORECASE)
 
+
+def _retry_reason(part: Part) -> Optional[str]:
+    """
+    Why a first attempt deserves a second, completing "That query ...", or
+    None when it does not.
+
+    Never after a refusal by the query guard: that is a safety decision, not a
+    mistake to be talked round. And not after an empty existence check, where
+    "no such partner" is the correct answer.
+    """
+    if part.status == "no_sql":
+        return "contained no SQL."
+    if part.status == "sql_error":
+        return f"failed with this error: {(part.error or 'unknown error')[:300]}"
+    if part.status == "empty" and not _EXISTENCE_CHECK.search(part.sql or ""):
+        return "ran, but found no matching rows."
+    return None
+
+
+async def run_data_part(question: str, trace: Optional[dict] = None) -> Part:
+    """
+    Generate SQL for a question, run it, and describe the result.
+
+    A query that fails, or finds nothing where something was expected, gets
+    one corrected attempt. The correction is kept only if it does better: a
+    retry can turn an error into an answer, but never an answer into an error.
+    """
+    trace = trace if trace is not None else {}
     db_path = database_path()
     if not os.path.exists(db_path):
         logging.error("Database file not found at %s - the image was built incorrectly", db_path)
-        part.status, part.text = "unavailable", UNAVAILABLE_MESSAGE
-        return part
+        return Part(type="data", question=question, status="unavailable", text=UNAVAILABLE_MESSAGE)
 
+    schema_text = ", ".join(schema_columns())
     try:
-        sql, raw_reply = await _call_model(
-            generate_sql, create_llm("sql"), question, ", ".join(schema_columns())
+        sql, raw_reply = await _call_model(generate_sql, create_llm("sql"), question, schema_text)
+    except ModelError:
+        return Part(type="data", question=question, status="model_error", text=MODEL_ERROR_MESSAGE)
+
+    part = await _describe(question, sql, raw_reply)
+    trace["sql_attempts"] = [part.sql or ""]
+    trace["first_status"] = part.status
+
+    reason = _retry_reason(part) if SQL_RETRY else None
+    if reason:
+        trace["retry_reason"] = reason
+        try:
+            retry_sql, retry_reply = await _call_model(
+                regenerate_sql, create_llm("sql"), question, schema_text, part.sql or "", reason
+            )
+        except ModelError:
+            retry_sql = ""
+        if retry_sql:
+            retry = await _describe(question, retry_sql, retry_reply)
+            trace["sql_attempts"].append(retry_sql)
+            better = retry.status == "ok" or (retry.status == "empty" and part.status != "empty")
+            if better:
+                retry.corrected = True
+                logging.info("SQL corrected on retry (%s): %s", reason[:80], retry_sql)
+                part = retry
+
+    if SUMMARIES and _worth_summarising(part):
+        await _add_summary(part, trace)
+    return part
+
+
+def _worth_summarising(part: Part) -> bool:
+    """
+    Summaries are written for figures compared across rows: rankings and
+    breakdowns. Not for a single value (already a sentence), a list of names
+    (it speaks for itself), or deal lines - rows with a document_number,
+    where the model has been seen to call one line of a deal "the biggest
+    deal" and the next line "the second biggest".
+    """
+    return (
+        part.status == "ok"
+        and part.value is None
+        and part.row_count > 1
+        and part.has_numbers
+        and "document_number" not in part.columns
+    )
+
+
+async def _describe(question: str, sql: str, raw_reply: str) -> Part:
+    """Turn a generated query, or the lack of one, into a Part."""
+    if not sql:
+        return Part(
+            type="data",
+            question=question,
+            status="no_sql",
+            text=f"I couldn't generate a valid SQL query. (AI said: {raw_reply})",
+        )
+    return await asyncio.to_thread(execute_query, question, sql)
+
+
+async def _add_summary(part: Part, trace: dict) -> None:
+    """Add a summary to a result table, if the model writes one that checks out."""
+    try:
+        summary = await _call_model(
+            summarise, create_llm("summary"), part.question, part.columns, part.rows,
+            part.row_count, part.truncated,
         )
     except ModelError:
-        part.status, part.text = "model_error", MODEL_ERROR_MESSAGE
-        return part
-
-    if not sql:
-        part.status = "no_sql"
-        part.text = f"I couldn't generate a valid SQL query. (AI said: {raw_reply})"
-        return part
-
-    return await asyncio.to_thread(execute_query, question, sql)
+        trace["summary"] = "failed"
+        return
+    if summary and is_grounded(summary, part.question, part.rows, part.row_count):
+        part.summary = summary
+        trace["summary"] = "used"
+    else:
+        logging.warning("Summary dropped: a figure in it is not in the result. %.200s", summary)
+        trace["summary"] = "dropped"
 
 
 def execute_query(question: str, sql: str) -> Part:
@@ -221,13 +325,14 @@ def execute_query(question: str, sql: str) -> Part:
         return part
     except (sqlite3.Error, ValueError, KeyError, AttributeError) as exc:
         logging.error("CRITICAL DB ERROR: %s | SQL ATTEMPTED: %s", exc, sql)
-        part.status, part.text = "sql_error", SQL_ERROR_MESSAGE
+        part.status, part.text, part.error = "sql_error", SQL_ERROR_MESSAGE, str(exc)
         return part
 
     rows = result.rows
     part.columns = result.columns
     part.truncated = result.truncated
     part.row_count = len(rows)
+    part.has_numbers = any(_is_number(value) for row in rows for value in row)
 
     # SUM() over no matching rows returns one row holding NULL. That is an
     # empty result, not an answer of "None".
@@ -340,15 +445,16 @@ async def run_turn(question: str, history: Optional[list[HistoryTurn]] = None) -
         # The question goes on exactly as typed, which keeps a conversation's
         # first question behaving as it did before the planner existed.
         planned = planned.model_copy(update={"question": question})
+    trace: dict = {}
     part = await (
-        run_data_part(planned.question)
+        run_data_part(planned.question, trace)
         if planned.kind == "data"
         else run_chat_part(planned.question, context)
     )
 
     kind: TurnKind = "error" if part.status in ("model_error", "unavailable") else part.type
     interpreted = None if _same_question(planned.question, question) else planned.question
-    turn = Turn(kind=kind, interpreted_as=interpreted, parts=[part])
+    turn = Turn(kind=kind, interpreted_as=interpreted, parts=[part], trace=trace)
     turn.memory = build_history_item(question, turn)
     return turn
 
@@ -382,9 +488,12 @@ def build_history_item(question: str, turn: Turn) -> HistoryTurn:
         [_clip(cell, MEMORY_MAX_CELL) for cell in row[:MEMORY_MAX_COLUMNS]]
         for row in part.rows[:MEMORY_MAX_ROWS]
     ]
-    answer = part.text if part.type != "data" else (
-        f"{part.text} {part.value}" if part.value is not None else part.text
-    )
+    if part.type != "data":
+        answer = part.text
+    elif part.value is not None:
+        answer = f"{part.text} {part.value}"
+    else:
+        answer = part.summary or part.text
     return HistoryTurn(
         question=_clip(question, 1000),
         interpreted=_clip(turn.interpreted_as, 1000),
@@ -405,12 +514,13 @@ def _legacy_part(part: Part) -> str:
     if part.value is not None:
         return f"Based on the data, the answer is: **{part.value}** \n\n*(SQL used: {part.sql})*"
 
+    lead = f"{part.summary}\n\n" if part.summary else ""
     table = f"| {' | '.join(part.columns)} |\n"
     table += f"|{'|'.join(['---'] * len(part.columns))}|\n"
     for row in part.rows:
         table += f"| {' | '.join(row)} |\n"
     note = f"\n\n*(Note: {TRUNCATION_NOTE})*" if part.truncated else ""
-    return f"Here is the data you requested:\n\n{table}{note}\n*(SQL used: {part.sql})*"
+    return f"{lead}Here is the data you requested:\n\n{table}{note}\n*(SQL used: {part.sql})*"
 
 
 def format_legacy(turn: Turn) -> str:

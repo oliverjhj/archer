@@ -46,7 +46,7 @@ its query is asking to be trusted without giving you any way to check it, and
   a boundary; SELECT-only enforcement and a read-only connection are.
 - **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
   so the ceiling is in the application.
-- **Production practices**: 182 tests, four CI jobs, automated deployment,
+- **Production practices**: 199 tests, four CI jobs, automated deployment,
   non-root multi-stage container, scale-to-zero hosting.
 
 ## The number that matters
@@ -84,6 +84,10 @@ restates it so it stands on its own - shown to the user as *Interpreted as* -
 before the SQL generator sees it. It can also explain an answer or its SQL, and
 politely declines anything that is not about the data. Nothing is stored on the
 server.
+
+A query that fails gets **one corrected attempt**, with the error shown to the
+model, and a ranking or breakdown comes with a **one-line summary** - checked
+before it is shown, so every figure in it is in the table beneath.
 
 Planning is a separate model call from SQL generation. A combined prompt would
 have to decide *and* produce SQL in one pass, and a model shown fifteen SQL
@@ -125,7 +129,7 @@ Requires an IBM Cloud API key and a watsonx.ai project. See
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 182 tests
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 199 tests
 python evals/run_evals.py                                          # accuracy
 ```
 

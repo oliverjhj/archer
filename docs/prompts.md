@@ -113,6 +113,15 @@ plausible columns with nothing to go on, and about half the time chose the one
 the user did not mean. Ambiguity in the question needs a documented default in
 the prompt, not a coin toss.
 
+### Deal values (v4)
+
+Rule 4b: for the average, smallest or largest *deal* value, total each
+deal first, then aggregate. Without it the model averaged line revenue within
+each deal. Its first wording said only what a deal's value is, and the model
+generalised: "the end user who bought the most licences" started being ranked
+by revenue. The rule now says it applies only to questions about deal values,
+and nothing else.
+
 ### What was tried and rejected
 
 - **Dropping the few-shot examples** to cut the 2,013-token cost. The examples
@@ -127,6 +136,24 @@ the prompt, not a coin toss.
   resolve follow-ups itself, at the cost of changing the prompt the suite had
   measured at 100%, on every question. Restating the question first keeps the
   SQL prompt exactly as it was.
+
+## The retry
+
+`sql_retry.md` is not a prompt on its own: it is a follow-up message. The SQL
+generator's messages are sent again, then the failed query as the model's own
+previous reply, then this - what went wrong, and three things to check: that
+every column exists, that text filters match partially rather than exactly,
+and that any date falls inside the data. Those are the causes of the failures
+actually seen.
+
+## The summary
+
+`summary.md` asks for one or two sentences about a result table, using only
+figures in it, quoted exactly, and never calculating new ones. The rule is
+there because the reply is checked: a percentage the model worked out cannot
+be traced to the result, so it would be dropped anyway. A second rule - no
+"all are above X" - came from the first eval run, where the fifth of five was
+exactly X.
 
 ## The conversational prompt
 

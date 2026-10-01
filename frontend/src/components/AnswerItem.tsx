@@ -97,7 +97,7 @@ function Prose({ text }: { text: string }) {
 
 /** One part of a structured answer. */
 function PartView({ part }: { part: Part }) {
-  if (part.type === 'chat' || !['ok', 'empty'].includes(part.status)) {
+  if (part.type !== 'data' || !['ok', 'empty'].includes(part.status)) {
     return <Prose text={part.text ?? ''} />;
   }
 
@@ -112,8 +112,12 @@ function PartView({ part }: { part: Part }) {
 
   return (
     <>
+      {/*
+        A table leads with its written summary when there is one; the server
+        has already checked that every figure in it is in the result.
+      */}
       <p className="archer-answer__text">
-        {part.text}
+        {part.value === null && part.summary ? part.summary : part.text}
         {part.value !== null && (
           <>
             {' '}
@@ -125,6 +129,11 @@ function PartView({ part }: { part: Part }) {
       {part.truncated && (
         <p className="archer-answer__note">
           Displaying the maximum of 100 rows to maintain performance.
+        </p>
+      )}
+      {part.corrected && (
+        <p className="archer-answer__note">
+          The first query did not work, so Archer corrected it before answering.
         </p>
       )}
       {part.sql && <SqlBlock label="SQL used" query={part.sql} />}

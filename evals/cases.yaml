@@ -330,6 +330,37 @@
   category: conversation
 
 # ---------------------------------------------------------------------------
+# Deal values (SQL prompt v4, rule 4b)
+#
+# A deal's value is the total of its lines. The first of these failed when
+# the chat API was introduced: the model averaged line revenue within each
+# deal. Rule 4b was written for it.
+# ---------------------------------------------------------------------------
+
+- id: average-deal-value-2025
+  question: What was the average deal value in 2025?
+  route: data
+  category: aggregate
+  expected_sql: >
+    WITH deals AS (
+      SELECT document_number, SUM(revenue) AS deal_value FROM sales_data
+      WHERE STRFTIME('%Y', document_date) = '2025'
+      GROUP BY document_number
+    )
+    SELECT AVG(deal_value) FROM deals
+
+- id: largest-deal-value-for-partner
+  question: What was the largest single deal value for Quantum Acorn Partners Ltd?
+  route: data
+  category: aggregate
+  expected_sql: >
+    SELECT MAX(deal_value) FROM (
+      SELECT SUM(revenue) AS deal_value FROM sales_data
+      WHERE customer_name = 'Quantum Acorn Partners Ltd'
+      GROUP BY document_number
+    )
+
+# ---------------------------------------------------------------------------
 # Follow-ups
 #
 # Each has a scripted earlier exchange. The follow-up only makes sense with
@@ -532,12 +563,25 @@
   expect_kind: decline
   category: holdout
 
-- id: holdout-data-not-declined
-  holdout: true
+# Was a hold-out until SQL prompt v4: rule 4b first made the model measure
+# "most licences" by revenue, and its wording was narrowed in response. A
+# prompt change made because of a hold-out case ends its hold-out status.
+- id: end-user-most-licences
   question: Which end user bought the most IBM Maximo licences?
   route: data
-  category: holdout
+  category: ranking
   expected_sql: >
     SELECT end_user_company_name, SUM(quantity) FROM sales_data
     WHERE LOWER(item_description) LIKE '%maximo%'
     GROUP BY end_user_company_name ORDER BY SUM(quantity) DESC LIMIT 1
+
+# Written to replace the case above, before any run against it.
+- id: holdout-partner-most-credits
+  holdout: true
+  question: Which partner had the most credit notes in 2023?
+  route: data
+  category: holdout
+  expected_sql: >
+    SELECT customer_name, COUNT(DISTINCT document_number) FROM sales_data
+    WHERE document_type = 'Credit' AND STRFTIME('%Y', document_date) = '2023'
+    GROUP BY customer_name ORDER BY COUNT(DISTINCT document_number) DESC LIMIT 1

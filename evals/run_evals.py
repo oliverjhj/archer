@@ -67,9 +67,10 @@ from archer.ai.llm import DEFAULT_MODEL_ID  # noqa: E402
 from archer.ai.prompts import prompt_meta  # noqa: E402
 from archer.db import database  # noqa: E402
 from archer.db.query import run_select  # noqa: E402
+from archer import pipeline  # noqa: E402
 from archer.pipeline import Part, Turn, build_history_item, execute_query, run_turn  # noqa: E402
 
-PROMPTS = ("planner", "sql_generator", "chat")
+PROMPTS = ("planner", "sql_generator", "sql_retry", "summary", "chat")
 
 
 def run_generated(sql: str, database: str) -> tuple[list[tuple] | None, str | None]:
@@ -158,6 +159,13 @@ def grade_case(case: dict, conn: sqlite3.Connection, database: str) -> dict:
 
     part = turn.parts[0]
     result["interpreted_as"] = turn.interpreted_as
+    result["sql_attempts"] = len(turn.trace.get("sql_attempts", []))
+    result["corrected"] = part.corrected
+    if "retry_reason" in turn.trace:
+        result["retry_reason"] = turn.trace["retry_reason"]
+    if "summary" in turn.trace:
+        result["summary_outcome"] = turn.trace["summary"]
+        result["summary"] = part.summary
     if part.status == "model_error":
         result.update(route="error", route_correct=False, error="model call failed")
         return result
@@ -267,6 +275,14 @@ def summarise(results: list[dict]) -> dict:
             sum(1 for r in interpreted if r["interpretation_correct"]), len(interpreted)
         ),
         "holdout_accuracy": pct(sum(1 for r in holdout if passed(r)), len(holdout)),
+        "retries_triggered": sum(1 for r in results if r.get("sql_attempts", 0) > 1),
+        "corrections_kept": sum(1 for r in results if r.get("corrected")),
+        "first_attempt_accuracy": pct(
+            sum(1 for r in data_cases if r.get("exact_match") and not r.get("corrected")), len(data_cases)
+        ),
+        "summaries_used": sum(1 for r in results if r.get("summary_outcome") == "used"),
+        "summaries_dropped": sum(1 for r in results if r.get("summary_outcome") == "dropped"),
+        "summaries_failed": sum(1 for r in results if r.get("summary_outcome") == "failed"),
         "cases_holdout": len(holdout),
         "routing_accuracy": pct(routed, len(results)),
         "sql_valid_rate": pct(valid, len(data_cases)),
@@ -291,6 +307,8 @@ def main() -> int:
     parser.add_argument("--database", default=str(REPO_ROOT / "sales.db"))
     parser.add_argument("--output", default=None, help="Write the full JSON record here.")
     parser.add_argument("--only", default=None, help="Run a single case by id.")
+    parser.add_argument("--no-retry", action="store_true", help="Disable SQL self-correction, to measure it.")
+    parser.add_argument("--no-summaries", action="store_true", help="Disable result summaries.")
     args = parser.parse_args()
 
     load_dotenv(REPO_ROOT / ".env")
@@ -309,6 +327,8 @@ def main() -> int:
     # those at what it was asked to measure.
     os.environ["WATSONX_MODEL_ID"] = args.model
     database.DB_FILENAME = args.database
+    pipeline.SQL_RETRY = not args.no_retry
+    pipeline.SUMMARIES = not args.no_summaries
     prompt_versions = {name: prompt_meta(name).get("version", "?") for name in PROMPTS}
 
     print(f"model: {args.model}")
@@ -354,6 +374,10 @@ def main() -> int:
     print(f"Value accuracy      {summary['value_accuracy']}%")
     print(f"Median latency      {summary['median_seconds']}s")
     print(f"Tokens              {summary['total_input_tokens']:,} in, {summary['total_output_tokens']:,} out")
+    print(f"First attempt       {summary['first_attempt_accuracy']}%  "
+          f"(retries {summary['retries_triggered']}, kept {summary['corrections_kept']})")
+    print(f"Summaries           {summary['summaries_used']} used, {summary['summaries_dropped']} dropped, "
+          f"{summary['summaries_failed']} failed")
     print("=" * 62)
     for name, bucket in sorted(summary["by_category"].items()):
         print(f"  {name:<14} {bucket['accuracy']:>5}%  ({bucket['exact']}/{bucket['total']})")
@@ -361,7 +385,14 @@ def main() -> int:
     if args.output:
         Path(args.output).write_text(
             json.dumps(
-                {"model": args.model, "prompts": prompt_versions, "summary": summary, "results": results},
+                {
+                    "model": args.model,
+                    "prompts": prompt_versions,
+                    "sql_retry": not args.no_retry,
+                    "summaries": not args.no_summaries,
+                    "summary": summary,
+                    "results": results,
+                },
                 indent=2,
             ),
             encoding="utf-8",
