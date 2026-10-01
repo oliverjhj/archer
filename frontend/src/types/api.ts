@@ -1,6 +1,7 @@
 // Shared types describing the contract with the backend ask endpoint.
 //
-//   request:  { "question": string }        (the backend also accepts string[])
+//   request:  { "question": string,        (the backend also accepts string[])
+//               "history"?: HistoryTurn[] }   recent exchanges, for follow-ups
 //   response: { "answer": string,           Markdown, unchanged for /ask callers
 //               "turn": Turn }              the structured record this app renders
 //
@@ -9,6 +10,8 @@
 
 export interface AskRequest {
   question: string;
+  /** Recent exchanges for context: each turn's `memory`, sent back unchanged. */
+  history?: HistoryTurn[];
 }
 
 /** One earlier exchange as carried forward for context. Built by the server. */
@@ -32,7 +35,7 @@ export type PartStatus =
 
 /** One answer within a turn: a data result or a piece of text. */
 export interface Part {
-  type: 'data' | 'chat';
+  type: 'data' | 'chat' | 'decline';
   question: string;
   status: PartStatus;
   /** The sentence a person reads first. Always present for a finished part. */
@@ -51,7 +54,7 @@ export interface Part {
 
 export interface Turn {
   version: number;
-  kind: 'data' | 'chat' | 'error' | 'budget';
+  kind: 'data' | 'chat' | 'decline' | 'error' | 'budget';
   interpreted_as: string | null;
   parts: Part[];
   memory: HistoryTurn | null;

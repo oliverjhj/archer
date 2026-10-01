@@ -38,7 +38,8 @@ export function AnswerWorkspace({ entries, busy, onAsk }: AnswerWorkspaceProps) 
           <h2 className="archer-empty__title">Ask Archer a question</h2>
           <p className="archer-empty__body">
             Enter a natural-language question below to explore the dataset.
-            Answers appear here alongside the SQL that produced them.
+            Answers appear here alongside the SQL that produced them, and you
+            can ask follow-up questions about them.
           </p>
           <ExampleQuestions
             questions={EXAMPLE_QUESTIONS.slice(0, 3)}

@@ -13,15 +13,22 @@ DEFAULT_URL = "https://eu-gb.ml.cloud.ibm.com"
 # Token budgets per task. These used to be a single shared value of 200, which
 # was wrong in both directions at once:
 #
-#   the classifier returns "1" or "2" - one token - and was allocated 200
+#   routing needed a single token and was allocated 200
 #   the SQL generator emits queries that can run past 200 and be truncated
 #
 # Sizing them separately costs nothing, because the limit is a ceiling rather
 # than an allocation, and removes both problems.
 _MAX_TOKENS = {
-    "classifier": 5,
+    "planner": 300,
     "sql": 400,
-    "chat": 300,
+    "chat": 350,
+}
+
+# The planner must reply with JSON. The chat API can enforce that, which
+# removes a whole class of failure: in testing it made no difference to
+# accuracy and none to latency, so there is no reason not to.
+_RESPONSE_FORMAT = {
+    "planner": {"type": "json_object"},
 }
 
 # A message as LangChain accepts it: (role, text), role being "system", "user"
@@ -52,6 +59,7 @@ def _build(task: str, model_id: str) -> ChatWatsonx:
         # equivalent, and the evaluation suite depends on repeatable output.
         temperature=0,
         max_completion_tokens=_MAX_TOKENS[task],
+        response_format=_RESPONSE_FORMAT.get(task),
     )
 
 

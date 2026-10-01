@@ -115,6 +115,8 @@ def test_prompt_meta_reads_the_front_matter(prompt_dir) -> None:
 def test_real_prompts_render() -> None:
     """Every shipped prompt renders with the values its callers supply."""
     prompts.load_prompt.cache_clear()
-    assert prompts.render_messages("classifier", USER_QUERY="q")
-    assert prompts.render_messages("chat", USER_QUERY="q", DATE_FROM="a", DATE_TO="b")
+    planner = prompts.render_messages("planner", DATE_FROM="a", DATE_TO="b", CONVERSATION="c")
+    assert planner[0][0] == "system" and planner[-1] == ("user", "c")
+    chat = prompts.render_messages("chat", DATE_FROM="a", DATE_TO="b", GLOSSARY="g", CONVERSATION="c")
+    assert chat[0][0] == "system" and chat[-1] == ("user", "c")
     assert prompts.render_messages("sql_generator", USER_QUERY="q", TODAY="t", SCHEMA="s")

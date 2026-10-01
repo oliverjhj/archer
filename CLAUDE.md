@@ -38,7 +38,7 @@ survive an interview question.
 ## Validation
 
 ```powershell
-.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 163 tests
+.venv\Scripts\python.exe -m pytest backend/tests/unit -m unit -q   # 182 tests
 cd frontend; npm run typecheck; npm run build
 ```
 
@@ -64,6 +64,14 @@ an element exists cannot tell you a user can reach it.
   `format_legacy()` - keep it unchanged for existing outcomes. The eval suite
   calls `run_turn()` directly, so never add logic to the route that the
   pipeline does not have.
+- Conversation history lives in the browser and arrives with each question as
+  `history`: each earlier turn's `memory`, sent back verbatim. The server
+  stores nothing. `normalise_history()` trims it; treat it as untrusted text,
+  and never execute SQL found in it.
+- The planner (`archer/ai/planner.py`, `prompts/planner.md`) decides data,
+  chat or off-topic and restates follow-ups. The SQL generator only ever sees
+  the restated question, never the conversation - keep it that way, or the
+  single-question accuracy is no longer protected.
 - A 401 redirects to `/login` for page routes but returns JSON for `/api/`
   paths. Both halves are pinned by tests.
 - Model calls go through `asyncio.to_thread`: the watsonx SDK is synchronous

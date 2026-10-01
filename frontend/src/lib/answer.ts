@@ -8,7 +8,7 @@
 //   "Here is the data you requested:\n\n| a | b |\n|---|---|\n| 1 | 2 |\n
 //    *(Note: Displaying the maximum of 100 rows...)*\n*(SQL used: SELECT ...)*"
 //   "I couldn't find any data matching that request.\n\n*(Query attempted: ...)*"
-//   plain conversational text
+//   plain conversational text, which may include "- item" lists
 //
 // Everything it produces is plain data rendered as React elements. Nothing
 // here emits HTML, and no caller uses dangerouslySetInnerHTML, so a hostile
@@ -21,6 +21,7 @@ export interface TextSpan {
 
 export type AnswerBlock =
   | { kind: 'text'; spans: TextSpan[] }
+  | { kind: 'list'; items: TextSpan[][] }
   | { kind: 'table'; headers: string[]; rows: string[][] };
 
 export interface ParsedAnswer {
@@ -34,6 +35,7 @@ export interface ParsedAnswer {
 const SQL_FOOTNOTE = /\*\(\s*(SQL used|Query attempted):\s*([\s\S]*?)\s*\)\*/;
 const NOTE_FOOTNOTE = /\*\(\s*Note:\s*([\s\S]*?)\s*\)\*/;
 const BOLD = /\*\*([\s\S]+?)\*\*/g;
+const LIST_ITEM = /^\s*(?:[-*]|\d+[.)])\s+/;
 
 /** Split a line into bold and plain spans. */
 function parseSpans(line: string): TextSpan[] {
@@ -115,6 +117,18 @@ export function parseAnswer(answer: string): ParsedAnswer {
           rows: rowLines.map(parseRow),
         });
       }
+      continue;
+    }
+
+    // Consecutive "- item", "* item" or "1. item" lines are one list. The
+    // chat replies use them when explaining a query step by step.
+    if (LIST_ITEM.test(line)) {
+      const items: TextSpan[][] = [];
+      while (index < lines.length && LIST_ITEM.test(lines[index])) {
+        items.push(parseSpans(lines[index].replace(LIST_ITEM, '').trim()));
+        index += 1;
+      }
+      blocks.push({ kind: 'list', items });
       continue;
     }
 

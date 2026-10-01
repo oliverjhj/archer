@@ -177,6 +177,23 @@ body {
   opacity: 0.75;
 }
 
+// The restated question, when a follow-up was answered as a standalone one.
+// Quiet but legible: it is there to be checked, not to compete with the answer.
+.archer-answer__interpreted {
+  max-width: 75ch;
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--cds-border-strong);
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary);
+}
+
+.archer-answer__interpreted-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .archer-answer__sql {
   margin-top: 0.75rem;
 }
@@ -315,4 +332,17 @@ body {
   border-top: 1px solid var(--cds-border-subtle);
   font-size: 0.8125rem;
   color: var(--cds-text-secondary);
+}
+
+// Lists in chat replies, such as a query explained step by step.
+.archer-answer__list {
+  max-width: 75ch;
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+  line-height: 1.5;
+
+  li + li {
+    margin-top: 0.25rem;
+  }
 }

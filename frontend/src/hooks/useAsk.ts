@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ask } from '../api/ask';
 import { ApiError } from '../api/client';
-import type { AskError, ConversationEntry } from '../types/api';
+import type { AskError, ConversationEntry, HistoryTurn } from '../types/api';
+
+/**
+ * How many earlier exchanges go with each question. The server trims to the
+ * same number; sending more would only be thrown away.
+ */
+const HISTORY_TURNS = 3;
 
 /**
  * Turn any thrown value into a message the user can act on.
@@ -33,6 +39,13 @@ export function useAsk(): UseAskResult {
   const counter = useRef(0);
   const controllers = useRef(new Set<AbortController>());
 
+  // submit() is created once, so it reads the conversation through a ref
+  // rather than a stale closure over the first render's entries.
+  const entriesRef = useRef<ConversationEntry[]>([]);
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
   // Abort any request still in flight when the component unmounts, so a
   // resolved promise cannot set state on an unmounted component.
   useEffect(() => {
@@ -48,6 +61,15 @@ export function useAsk(): UseAskResult {
     if (!trimmed) {
       return;
     }
+
+    // The context for this question: what the server said each recent
+    // exchange should contribute, sent back as it was received. Failed
+    // exchanges add nothing worth following up on, so they are left out.
+    const history: HistoryTurn[] = entriesRef.current
+      .filter((entry) => !entry.pending && !entry.error && entry.turn?.memory)
+      .filter((entry) => entry.turn?.kind !== 'error' && entry.turn?.kind !== 'budget')
+      .map((entry) => entry.turn!.memory!)
+      .slice(-HISTORY_TURNS);
 
     counter.current += 1;
     const id = `turn-${counter.current}`;
@@ -69,7 +91,7 @@ export function useAsk(): UseAskResult {
       );
     };
 
-    void ask({ question: trimmed }, { signal: controller.signal })
+    void ask({ question: trimmed, history }, { signal: controller.signal })
       .then((response) => {
         const answer = response?.answer ?? '';
         const turn = response?.turn ?? null;
@@ -93,9 +115,10 @@ export function useAsk(): UseAskResult {
       });
   }, []);
 
-  // Empty the conversation. Questions still in flight are aborted first, so a
-  // late answer cannot reappear in a conversation the user has just cleared.
-  // Purely client-side: each question is sent on its own, so the server holds
+  // Empty the conversation, and with it the context sent with the next
+  // question. Questions still in flight are aborted first, so a late answer
+  // cannot reappear in a conversation the user has just cleared. Purely
+  // client-side: the conversation lives only here, so the server holds
   // nothing to reset.
   const clear = useCallback(() => {
     controllers.current.forEach((controller) => controller.abort());

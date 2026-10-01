@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archer import pipeline
+from archer.ai.planner import Plan, PlannedPart
 from archer.pipeline import (
     MEMORY_MAX_ANSWER,
     MEMORY_MAX_CELL,
@@ -44,9 +45,11 @@ def db_path():
 
 
 def _run(question, db_path, *, route="1", sql=None, chat="Hello."):
+    kind = "data" if route == "1" else "chat"
+    plan = Plan(kind=kind, parts=[PlannedPart(kind=kind, question=question)])
     with (
         patch("archer.pipeline.create_llm", return_value=MagicMock()),
-        patch("archer.pipeline.classify_query", return_value=route),
+        patch("archer.pipeline.plan_message", return_value=plan),
         patch("archer.pipeline.generate_sql", return_value=(sql or "", sql or "no sql")),
         patch("archer.pipeline.generate_chat_response", return_value=chat),
         patch("archer.pipeline.database_path", return_value=db_path),
@@ -137,7 +140,7 @@ def test_chat_answer(db_path) -> None:
 def test_model_outage_is_an_answer_not_a_500(db_path) -> None:
     with (
         patch("archer.pipeline.create_llm", return_value=MagicMock()),
-        patch("archer.pipeline.classify_query", side_effect=RuntimeError("watsonx down")),
+        patch("archer.pipeline.plan_message", side_effect=RuntimeError("watsonx down")),
     ):
         turn = asyncio.run(run_turn("anything"))
     assert turn.kind == "error"

@@ -29,8 +29,8 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from .ai.chat import generate_chat_response
-from .ai.classifier import classify_query
 from .ai.llm import create_llm
+from .ai.planner import plan_message
 from .ai.sql_generator import generate_sql
 from .db.database import database_path, schema_columns
 from .db.query import QueryBlocked, run_select
@@ -55,12 +55,27 @@ UNAVAILABLE_MESSAGE = "Database temporarily unavailable. Please contact support.
 MODEL_ERROR_MESSAGE = (
     "The language model did not respond. Please try again in a moment."
 )
+# Fixed, not generated: an off-topic request costs one model call (the
+# planner) rather than two, the reply is the same every time, and there is no
+# free text for a jailbreak to work on.
+DECLINE_MESSAGE = (
+    "I can only help with the sales data: questions about revenue, deals, "
+    "partners, end users and products, or about an answer I have already "
+    "given. Try asking one of those."
+)
+
+# How much client-supplied history is used. Requests may carry more (the
+# request model's limits are generous, to reject only abuse); this trims it
+# to what the prompts need.
+HISTORY_TURNS = 3
+HISTORY_MAX_CHARS = 6000
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 _SELECT_START = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
 
-PartType = Literal["data", "chat"]
+PartType = Literal["data", "chat", "decline"]
 DataStatus = Literal["ok", "empty", "no_sql", "blocked", "sql_error", "unavailable", "model_error"]
-TurnKind = Literal["data", "chat", "error", "budget"]
+TurnKind = Literal["data", "chat", "decline", "error", "budget"]
 
 
 class HistoryTurn(BaseModel):
@@ -182,14 +197,24 @@ async def run_data_part(question: str) -> Part:
         part.text = f"I couldn't generate a valid SQL query. (AI said: {raw_reply})"
         return part
 
-    part.sql = sql
+    return await asyncio.to_thread(execute_query, question, sql)
+
+
+def execute_query(question: str, sql: str) -> Part:
+    """
+    Run SQL through the guarded executor and describe the result as a Part.
+
+    Separate from generation so the evaluation suite can build a scripted
+    conversation history from known queries, with no model involved.
+    """
+    part = Part(type="data", question=question, sql=sql)
     if not _SELECT_START.match(sql):
         logging.error("Non-SELECT query blocked: %s", sql)
         part.status, part.text = "blocked", BLOCKED_MESSAGE
         return part
 
     try:
-        result = await asyncio.to_thread(run_select, sql)
+        result = run_select(sql)
     except QueryBlocked as exc:
         logging.error("Query refused by the guard: %s | %s", exc, sql)
         part.status, part.text = "blocked", BLOCKED_MESSAGE
@@ -225,30 +250,105 @@ async def run_data_part(question: str) -> Part:
     return part
 
 
-async def run_chat_part(question: str) -> Part:
+async def run_chat_part(question: str, history: list[HistoryTurn]) -> Part:
     try:
-        reply = await _call_model(generate_chat_response, create_llm("chat"), question)
+        reply = await _call_model(generate_chat_response, create_llm("chat"), question, history)
     except ModelError:
         return Part(type="chat", question=question, status="model_error", text=MODEL_ERROR_MESSAGE)
     return Part(type="chat", question=question, text=reply)
 
 
+def _clean(text: Optional[str], limit: int) -> Optional[str]:
+    if text is None:
+        return None
+    return _clip(_CONTROL_CHARS.sub(" ", str(text)), limit)
+
+
+def normalise_history(history: Optional[list[HistoryTurn]]) -> list[HistoryTurn]:
+    """
+    Trim client-supplied history to what the prompts use.
+
+    History comes from the browser, so it is treated as untrusted text: it is
+    cut to the last few exchanges and to the same row, column and length
+    limits the server applied when it built each item, with control
+    characters removed. It is only ever shown to the model as context. The SQL
+    in it is never executed: only freshly generated SQL runs, through
+    run_select.
+    """
+    items = []
+    for item in (history or [])[-HISTORY_TURNS:]:
+        items.append(
+            HistoryTurn(
+                question=_clean(item.question, 1000) or "",
+                interpreted=_clean(item.interpreted, 1000),
+                sql=_clean(item.sql, 4000),
+                columns=[_clean(c, MEMORY_MAX_CELL) or "" for c in item.columns[:MEMORY_MAX_COLUMNS]],
+                rows=[
+                    [_clean("" if cell is None else cell, MEMORY_MAX_CELL) for cell in row[:MEMORY_MAX_COLUMNS]]
+                    for row in item.rows[:MEMORY_MAX_ROWS]
+                ],
+                answer=_clean(item.answer, MEMORY_MAX_ANSWER),
+            )
+        )
+
+    # Fit the budget by dropping the oldest exchanges first, then rows from
+    # the latest - never the latest exchange itself, which is the one a
+    # follow-up most often refers to.
+    def size() -> int:
+        return sum(len(item.model_dump_json()) for item in items)
+
+    while len(items) > 1 and size() > HISTORY_MAX_CHARS:
+        items.pop(0)
+    while items and items[-1].rows and size() > HISTORY_MAX_CHARS:
+        items[-1].rows.pop()
+    return items
+
+
+def _same_question(a: str, b: str) -> bool:
+    """True when two questions differ only in case, spacing or punctuation."""
+    def squash(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    return squash(a) == squash(b)
+
+
 async def run_turn(question: str, history: Optional[list[HistoryTurn]] = None) -> Turn:
     """
-    Answer one message.
+    Answer one message, in the context of the earlier exchanges in `history`.
 
-    `history` is accepted now and used from the planner onwards; this version
-    routes each question on its own, exactly as before.
+    The planner decides what the message needs and restates it so it stands
+    on its own; the restated question is what the SQL generator or the chat
+    prompt receives, and it is shown to the user as "Interpreted as" whenever
+    it differs from what they typed.
     """
+    context = normalise_history(history)
+
     try:
-        route = await _call_model(classify_query, create_llm("classifier"), question)
+        plan = await _call_model(plan_message, create_llm("planner"), question, context)
     except ModelError:
         part = Part(type="chat", question=question, status="model_error", text=MODEL_ERROR_MESSAGE)
         return Turn(kind="error", parts=[part])
 
-    part = await (run_data_part(question) if route == "1" else run_chat_part(question))
+    if plan.kind == "off_topic":
+        turn = Turn(kind="decline", parts=[Part(type="decline", question=question, text=DECLINE_MESSAGE)])
+        turn.memory = build_history_item(question, turn)
+        return turn
+
+    planned = plan.parts[0]
+    if not context:
+        # With no earlier exchange there is nothing to resolve, so a restated
+        # question could only be a paraphrase ("partners" for "customers").
+        # The question goes on exactly as typed, which keeps a conversation's
+        # first question behaving as it did before the planner existed.
+        planned = planned.model_copy(update={"question": question})
+    part = await (
+        run_data_part(planned.question)
+        if planned.kind == "data"
+        else run_chat_part(planned.question, context)
+    )
+
     kind: TurnKind = "error" if part.status in ("model_error", "unavailable") else part.type
-    turn = Turn(kind=kind, parts=[part])
+    interpreted = None if _same_question(planned.question, question) else planned.question
+    turn = Turn(kind=kind, interpreted_as=interpreted, parts=[part])
     turn.memory = build_history_item(question, turn)
     return turn
 
@@ -282,7 +382,7 @@ def build_history_item(question: str, turn: Turn) -> HistoryTurn:
         [_clip(cell, MEMORY_MAX_CELL) for cell in row[:MEMORY_MAX_COLUMNS]]
         for row in part.rows[:MEMORY_MAX_ROWS]
     ]
-    answer = part.text if part.type == "chat" else (
+    answer = part.text if part.type != "data" else (
         f"{part.text} {part.value}" if part.value is not None else part.text
     )
     return HistoryTurn(
@@ -296,7 +396,7 @@ def build_history_item(question: str, turn: Turn) -> HistoryTurn:
 
 
 def _legacy_part(part: Part) -> str:
-    if part.type == "chat" or part.status in ("no_sql", "blocked", "sql_error", "unavailable", "model_error"):
+    if part.type != "data" or part.status in ("no_sql", "blocked", "sql_error", "unavailable", "model_error"):
         return part.text or ""
 
     if part.status == "empty":

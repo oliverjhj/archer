@@ -1,23 +1,32 @@
 import logging
 import os
-from typing import List, Union
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..auth.jwt import get_current_user
 from ..core.limiter import limiter
 from ..core.usage import BUDGET_EXHAUSTED_MESSAGE, budget
-from ..pipeline import budget_turn, format_legacy, run_turn
+from ..pipeline import HistoryTurn, budget_turn, format_legacy, run_turn
 
 router = APIRouter()
+
+MAX_QUESTION_LENGTH = 2000
 
 
 class AskRequest(BaseModel):
     question: Union[str, List[str]]
+    # Earlier exchanges, as the server returned them in each turn's "memory"
+    # and the browser sends back. Optional, so /ask callers that send only a
+    # question are unaffected. These limits reject abuse; the pipeline trims
+    # what it actually uses much further.
+    history: List[HistoryTurn] = Field(default_factory=list, max_length=6)
 
 
-async def answer_question(question: Union[str, List[str]]) -> dict:
+async def answer_question(
+    question: Union[str, List[str]], history: Optional[List[HistoryTurn]] = None
+) -> dict:
     """
     Shared question-answering orchestration.
 
@@ -44,8 +53,11 @@ async def answer_question(question: Union[str, List[str]]) -> dict:
         turn = budget_turn(user_query, BUDGET_EXHAUSTED_MESSAGE)
         return {"answer": BUDGET_EXHAUSTED_MESSAGE, "turn": turn.model_dump()}
 
-    logging.info("User Query: %s", user_query)
-    turn = await run_turn(user_query)
+    if len(user_query) > MAX_QUESTION_LENGTH:
+        raise HTTPException(status_code=422, detail="Question is too long.")
+
+    logging.info("User Query: %s (history: %d items)", user_query, len(history or []))
+    turn = await run_turn(user_query, history)
     return {"answer": format_legacy(turn), "turn": turn.model_dump()}
 
 
@@ -61,7 +73,7 @@ async def ask_ai(request: Request, payload: AskRequest, x_api_key: str = Header(
     if not expected_secret or x_api_key != expected_secret:
         raise HTTPException(status_code=401, detail="Unauthorised: Invalid or missing API Key")
 
-    return await answer_question(payload.question)
+    return await answer_question(payload.question, payload.history)
 
 
 @router.post("/api/ask")
@@ -82,5 +94,5 @@ async def ask_ai_authenticated(
     The application converts a 401 on an /api/ path into a JSON response rather
     than the redirect-to-login used for page routes - see archer/app.py.
     """
-    return await answer_question(payload.question)
+    return await answer_question(payload.question, payload.history)
 

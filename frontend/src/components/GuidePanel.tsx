@@ -124,6 +124,21 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
         <h4 className="archer-guide__heading">Try a question</h4>
         <ExampleQuestions questions={EXAMPLE_QUESTIONS} disabled={busy} onAsk={askAndClose} />
 
+        <h4 className="archer-guide__heading">Follow up</h4>
+        <p className="archer-guide__text">
+          Archer remembers your last three exchanges, so you can build on an
+          answer: <em>"how many deals did the second one do?"</em>,{' '}
+          <em>"and for 2024?"</em> or <em>"explain that query"</em>. When it
+          restates your question to answer it, it shows you how under{' '}
+          <strong>Interpreted as</strong>. Clearing the conversation or
+          refreshing the page starts afresh; nothing is saved.
+        </p>
+        <p className="archer-guide__text">
+          It answers questions about this data and the answers it has given.
+          Anything else - general knowledge, writing, other topics - it will
+          politely decline.
+        </p>
+
         <h4 className="archer-guide__heading">Words Archer understands</h4>
         <dl className="archer-guide__columns">
           {VOCABULARY.map(([words, meaning]) => (

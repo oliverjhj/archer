@@ -25,7 +25,9 @@ Two levels are reported:
 | **Execution accuracy** | The result sets are identical. This is the headline number |
 | Value accuracy | Every value in the reference result appears in the generated result. Catches "right numbers, extra columns" |
 | Valid SQL rate | The generated query executed at all |
-| Routing accuracy | The classifier sent the question down the right path |
+| Routing accuracy | The planner chose the right kind of reply: data, chat or decline |
+| Interpretation | A follow-up was restated correctly - checked separately, so a failure says whether the planner or the SQL went wrong |
+| Hold-out | Cases written once and run, never tuned against |
 
 Routing is graded separately because a greeting sent to the SQL generator
 wastes a model call and produces nonsense, and that failure is invisible in a
@@ -45,7 +47,34 @@ question containing braces) and uses the chat API.
 | Baseline | `llama-3-3-70b-instruct` | v2 | 92.9% | 100% | 100% | 7.25s |
 | Baseline | `mistral-small-3-1-24b` | v2 | 89.3% | 100% | 100% | 0.83s |
 | Text generation | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
-| **Current, chat API** | **`mistral-small-3-1-24b`** | **v3** | **100%** | **100%** | **100%** | **0.50s** |
+| Chat API | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
+| **Current, planner (52 cases)** | **`mistral-small-3-1-24b`** | **planner v1, SQL v3, chat v3** | **100%** | **100%** | **100%** | **0.89s** |
+
+### Adding the planner
+
+The binary classifier was replaced by a planner that reads each question in
+the context of the conversation. The suite grew from 34 to 52 cases to measure
+what that adds: six follow-ups with a scripted earlier exchange (an ordinal,
+a pronoun, "and in 2022?", "what about software?", an end user referred to as
+"the second one", and an unrelated question that must be left alone), four
+data-related chat cases graded on what the reply contains, four off-topic
+requests that must be declined, and six hold-out cases.
+
+The first run scored 88.5%. Four original single questions - including *"How
+many deals were there in 2024?"* - were declined as off-topic: the planner's
+only off-topic example had a year in it. A fifth, *"What item groups are in the
+database?"*, was treated as a definition rather than a listing. And one
+follow-up restated "the second one" as a company name without "end user", so
+the SQL searched partners. Three rules fixed all six without touching any of
+the original prompts, and the next two full runs scored 100% on all 52.
+
+**The hold-out cases passed on their first run**, before and after that fix,
+and were never edited. They are the honest measure here; the follow-up cases
+were written alongside the prompt.
+
+Cost per message rose with the extra call: a data question now takes a median
+of about 3,400 input tokens (from about 2,300), chat about 2,500, a decline
+about 1,400. Median latency rose from 0.5s to 0.9s.
 
 ### Moving to the chat API
 
@@ -164,9 +193,9 @@ Measured against the live prompts:
 
 | Prompt | Input tokens |
 |---|---|
-| Classifier | 228 |
+| Classifier (retired) | 228 |
 | SQL generator | 2,013 |
-| Conversational | 302 |
+| Conversational (v2) | 302 |
 
 A data question costs roughly **2,300 tokens**, almost all of it the SQL
 generator's few-shot examples. The suite now records usage per case: on the
