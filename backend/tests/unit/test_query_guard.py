@@ -114,6 +114,43 @@ def test_reads_beyond_sales_data_are_refused(db_path, sql) -> None:
         run_select(sql, db_path=db_path)
 
 
+@pytest.fixture
+def db_with_other_tables(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE secrets (value TEXT)")
+    conn.execute("INSERT INTO secrets VALUES ('hidden')")
+    conn.execute("CREATE VIEW secrets_view AS SELECT value FROM secrets")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT value FROM secrets",
+        "SELECT value FROM SECRETS",
+        "SELECT value FROM secrets_view",
+        "SELECT s.revenue FROM sales_data s JOIN secrets ON 1 = 1",
+        "WITH t AS (SELECT value FROM secrets) SELECT * FROM t",
+    ],
+)
+def test_other_tables_in_the_file_are_refused(db_with_other_tables, sql) -> None:
+    with pytest.raises(QueryBlocked):
+        run_select(sql, db_path=db_with_other_tables)
+
+
+@pytest.mark.unit
+def test_sales_data_and_ctes_still_work_beside_other_tables(db_with_other_tables) -> None:
+    result = run_select(
+        "WITH RECURSIVE m(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM m WHERE n < 3) "
+        "SELECT COUNT(*) FROM sales_data, m",
+        db_path=db_with_other_tables,
+    )
+    assert result.rows == [(450,)]
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "sql",

@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, Request
 
 from ..auth.jwt import get_current_user
 from ..core.limiter import limiter
-from ..db.database import database_path
+from ..db.database import TABLE_NAME, database_path
 
 router = APIRouter()
 
-# The descriptions live in archer.db.catalogue, shared with the prompts. They
-# are imported here under their old names, which the tests use.
+# The descriptions live in archer.db.catalogue, shared with the prompts. The
+# tests import them from here.
 from ..db.catalogue import COLUMN_DESCRIPTIONS, COMMON_COLUMNS, KNOWN_VALUES  # noqa: E402,F401
 
 
@@ -37,15 +37,15 @@ async def get_schema(request: Request, username: str = Depends(get_current_user)
                 "common": row[1] in COMMON_COLUMNS,
                 "description": COLUMN_DESCRIPTIONS.get(row[1], ""),
             }
-            for row in cursor.execute("PRAGMA table_info(sales_data)")
+            for row in cursor.execute(f"PRAGMA table_info({TABLE_NAME})")
         ]
-        rows = cursor.execute("SELECT COUNT(*) FROM sales_data").fetchone()[0]
+        rows = cursor.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()[0]
         date_from, date_to = cursor.execute(
-            "SELECT MIN(document_date), MAX(document_date) FROM sales_data"
+            f"SELECT MIN(document_date), MAX(document_date) FROM {TABLE_NAME}"
         ).fetchone()
 
         return {
-            "table": "sales_data",
+            "table": TABLE_NAME,
             "row_count": rows,
             "date_from": date_from,
             "date_to": date_to,
@@ -54,7 +54,7 @@ async def get_schema(request: Request, username: str = Depends(get_current_user)
         }
     except sqlite3.Error as exc:
         logging.error("Could not read schema: %s", exc)
-        return {"table": "sales_data", "row_count": 0, "columns": [], "known_values": {}}
+        return {"table": TABLE_NAME, "row_count": 0, "columns": [], "known_values": {}}
     finally:
         if conn:
             conn.close()
