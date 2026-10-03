@@ -1,2 +1,2 @@
-"""Archer AI Authentication Modules"""
+"""Archer Authentication Modules"""
 

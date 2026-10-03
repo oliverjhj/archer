@@ -1,2 +1,2 @@
-"""Archer AI Backend Package"""
+"""Archer Backend Package"""
 

@@ -46,14 +46,14 @@ async def lifespan(app: FastAPI):
     yield  # Application runs here
     
     # Shutdown: Clean-up (optional)
-    logging.info("Shutting down Archer AI application...")
+    logging.info("Shutting down Archer application...")
 
 # Initialise FastAPI with lifespan event handler
 app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
 
 # Log application initialisation
-logging.info("Archer AI FastAPI application initialised successfully")
+logging.info("Archer FastAPI application initialised successfully")
 
 # Mount static files folder (login page stylesheet, favicon)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

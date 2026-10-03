@@ -1,2 +1,2 @@
-"""Archer AI Core Utilities"""
+"""Archer Core Utilities"""
 
