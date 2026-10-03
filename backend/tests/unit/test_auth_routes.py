@@ -23,6 +23,8 @@ No .env file, real sales.db, IBM Cloud, watsonx, or network access is
 required or permitted.
 """
 
+import pathlib
+
 import pytest
 
 from fastapi import FastAPI
@@ -79,6 +81,18 @@ def test_get_login_returns_200() -> None:
     client = TestClient(_test_app, raise_server_exceptions=False)
     response = client.get("/login")
     assert response.status_code == 200
+
+
+@pytest.mark.unit
+def test_get_login_carries_the_page_link_through_sign_in() -> None:
+    """The login page adds the URL fragment to the form action, so a link to
+    /#/how-it-was-built still lands there after signing in."""
+    # Read from disk rather than requested: /login is rate limited, and an
+    # extra request here would push later tests over the limit.
+    template = pathlib.Path(__file__).parents[2] / "templates" / "login.html"
+    html = template.read_text(encoding="utf-8")
+    assert "form.setAttribute('action', '/login' + window.location.hash)" in html
+    assert '<form action="/login" method="POST">' in html
 
 
 @pytest.mark.unit

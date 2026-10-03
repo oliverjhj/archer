@@ -5,11 +5,13 @@ import {
   SideNavItems,
   SideNavLink,
 } from '@carbon/react';
-import { Chat, Help, Information } from '@carbon/icons-react';
+import { Branch, Chat, Help, Information, Rocket } from '@carbon/icons-react';
+import { ROUTE_HASH, type Route } from '../hooks/useHashRoute';
 
-const REPO_URL = 'https://github.com/oliverjhj/archer';
+export const REPO_URL = 'https://github.com/oliverjhj/archer';
 
 interface AppSideNavProps {
+  route: Route;
   onOpenGuide: () => void;
 }
 
@@ -17,7 +19,7 @@ interface AppSideNavProps {
 //
 // Every item here does something: a link that goes nowhere makes the whole
 // interface read as a mockup.
-export function AppSideNav({ onOpenGuide }: AppSideNavProps) {
+export function AppSideNav({ route, onOpenGuide }: AppSideNavProps) {
   return (
     <SideNav
       aria-label="Primary navigation"
@@ -26,7 +28,7 @@ export function AppSideNav({ onOpenGuide }: AppSideNavProps) {
       isChildOfHeader={false}
     >
       <SideNavItems>
-        <SideNavLink renderIcon={Chat} href="#" isActive>
+        <SideNavLink renderIcon={Chat} href={ROUTE_HASH.ask} isActive={route === 'ask'}>
           Ask
         </SideNavLink>
         <SideNavLink
@@ -38,6 +40,21 @@ export function AppSideNav({ onOpenGuide }: AppSideNavProps) {
           }}
         >
           How to use Archer
+        </SideNavLink>
+        <SideNavDivider />
+        <SideNavLink
+          renderIcon={Rocket}
+          href={ROUTE_HASH['how-it-was-built']}
+          isActive={route === 'how-it-was-built'}
+        >
+          How it was built
+        </SideNavLink>
+        <SideNavLink
+          renderIcon={Branch}
+          href={ROUTE_HASH['make-your-own']}
+          isActive={route === 'make-your-own'}
+        >
+          Make your own
         </SideNavLink>
         <SideNavDivider />
         <SideNavLink
