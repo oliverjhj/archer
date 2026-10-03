@@ -63,7 +63,7 @@ A conversation carries on from there:
   [security](docs/security.md).
 - A daily message ceiling in the application caps the cost, because IBM Cloud
   spending limits only send notifications.
-- 216 unit tests, four CI jobs, automatic deployment on every merge, a
+- 217 unit tests, four CI jobs, automatic deployment on every merge, a
   non-root multi-stage container, scale-to-zero hosting.
 
 ## How it works

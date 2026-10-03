@@ -1,6 +1,6 @@
 # Testing
 
-216 unit tests, run in CI on every push and pull request (see [CI](ci.md)).
+217 unit tests, run in CI on every push and pull request (see [CI](ci.md)).
 
 ```bash
 .venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q
