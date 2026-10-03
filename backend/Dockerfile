@@ -1,5 +1,5 @@
 # =============================================================
-# Archer Text-to-SQL - Dockerfile
+# Archer - Dockerfile
 # Build context: repo root
 #   docker build -f backend/Dockerfile -t archer-backend:local .
 #

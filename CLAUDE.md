@@ -1,4 +1,4 @@
-# CLAUDE.md - archer-text-to-sql
+# CLAUDE.md - archer
 
 Read this before doing anything in this repository.
 

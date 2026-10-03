@@ -1,3 +1,3 @@
-"""Archer Text-to-SQL Backend Package"""
+"""Archer Backend Package"""
 
 # Made with Bob

@@ -7,7 +7,7 @@ import {
 } from '@carbon/react';
 import { Chat, Help, Information } from '@carbon/icons-react';
 
-const REPO_URL = 'https://github.com/oliverjhj/archer-text-to-sql';
+const REPO_URL = 'https://github.com/oliverjhj/archer';
 
 interface AppSideNavProps {
   onOpenGuide: () => void;

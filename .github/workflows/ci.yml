@@ -1,4 +1,4 @@
-# CI workflow for Archer Text-to-SQL
+# CI workflow for Archer
 # Phase 2A - lightweight quality checks with no runtime dependencies.
 # Phase 2B - Docker build validation (image build only, no container run, no secrets).
 # Runs on every push to main and on every pull request.

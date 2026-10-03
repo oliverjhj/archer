@@ -2,7 +2,7 @@
 
 **Ask a sales database a question in English. Get the answer and the SQL that produced it - then follow up, ask it to explain, or ask several things at once.**
 
-[![CI](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml/badge.svg)](https://github.com/oliverjhj/archer-text-to-sql/actions/workflows/ci.yml)
+[![CI](https://github.com/oliverjhj/archer/actions/workflows/ci.yml/badge.svg)](https://github.com/oliverjhj/archer/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen)](docs/testing.md)
 [![Evals](https://img.shields.io/badge/evals-98.4%25%20on%2061%20cases-blue)](docs/evals.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](backend/pyproject.toml)
