@@ -1,5 +1,5 @@
 # =============================================================
-# Archer Text-to-SQL - Docker build context exclusions
+# Archer - Docker build context exclusions
 # Applies when building from repo root:
 #   docker build -f backend/Dockerfile .
 # Do NOT exclude backend/ - it is required by the Docker build.

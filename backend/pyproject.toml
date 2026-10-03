@@ -1,7 +1,7 @@
 [project]
-name = "archer-text-to-sql"
+name = "archer"
 version = "0.1.0"
-description = "Text-to-SQL conversational AI with IBM Watsonx integration"
+description = "Archer: conversational questions over a sales database, answered with SQL on IBM watsonx"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",

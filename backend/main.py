@@ -1,4 +1,4 @@
-"""Archer Text-to-SQL Backend Package"""
+"""Archer Backend Package"""
 
 # Compatibility entrypoint for both:
 # - python -m uvicorn backend.main:app (from repo root)

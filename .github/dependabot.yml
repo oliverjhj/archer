@@ -1,5 +1,5 @@
 # .github/dependabot.yml
-# Archer Text-to-SQL - Automated dependency update configuration.
+# Archer - Automated dependency update configuration.
 #
 # Monitors:
 #   - Python pip dependencies in backend/requirements.txt

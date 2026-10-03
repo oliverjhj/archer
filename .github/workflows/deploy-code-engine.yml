@@ -1,5 +1,5 @@
 # .github/workflows/deploy-code-engine.yml
-# Archer Text-to-SQL - Deploy backend to IBM Code Engine.
+# Archer - Deploy backend to IBM Code Engine.
 #
 # Trigger: automatically, after CI passes on a push to main; or manually
 # (workflow_dispatch) to redeploy without a new commit.

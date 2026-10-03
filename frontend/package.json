@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Archer Text-to-SQL frontend (Vite + React + TypeScript, IBM Carbon).",
+  "description": "Archer frontend (Vite + React + TypeScript, IBM Carbon).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -19,10 +19,10 @@ export function AppHeader({ theme, onToggleTheme, onClear }: AppHeaderProps) {
   const switchingToLight = theme === 'dark';
 
   return (
-    <Header aria-label="Archer Text-to-SQL">
+    <Header aria-label="Archer">
       <SkipToContent />
-      <HeaderName href="#" prefix="Archer">
-        Text-to-SQL
+      <HeaderName href="#" prefix="">
+        Archer
       </HeaderName>
       <HeaderGlobalBar>
         {/*
