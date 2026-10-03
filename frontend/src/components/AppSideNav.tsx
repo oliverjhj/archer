@@ -15,9 +15,8 @@ interface AppSideNavProps {
 
 // Primary side navigation (IBM Carbon UI Shell).
 //
-// Every item here does something. They were previously href="#" placeholders,
-// which is worse than having no navigation at all: a visitor clicks, nothing
-// happens, and the whole interface reads as a mockup.
+// Every item here does something: a link that goes nowhere makes the whole
+// interface read as a mockup.
 export function AppSideNav({ onOpenGuide }: AppSideNavProps) {
   return (
     <SideNav
