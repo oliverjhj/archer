@@ -32,7 +32,7 @@ test = [
 # The evaluation suite is not part of the test run: it makes real model calls
 # and needs live credentials. Installed separately, on purpose.
 evals = [
-    "pyyaml>=6.0",
+    "pyyaml>=6.0.3",
     "python-dotenv>=1.0",
 ]
 
