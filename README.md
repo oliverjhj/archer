@@ -1,31 +1,28 @@
 # Archer
 
-**Ask a sales database a question in English. Get the answer and the SQL that produced it - then follow up, ask it to explain, or ask several things at once.**
+Ask a sales database a question in plain English and get the answer, with the
+SQL that produced it. Follow-up questions, explanations and several questions
+in one message all work.
 
 [![CI](https://github.com/oliverjhj/archer/actions/workflows/ci.yml/badge.svg)](https://github.com/oliverjhj/archer/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen)](docs/testing.md)
 [![Evals](https://img.shields.io/badge/evals-98.4%25%20on%2061%20cases-blue)](docs/evals.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](backend/pyproject.toml)
 [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
 
-[**Live demo**](https://archer.2e8toyh6lcs9.eu-gb.codeengine.appdomain.cloud) &nbsp;·&nbsp; sign in with `demo` / `archer-demo-2026`
+[Live demo](https://archer.2e8toyh6lcs9.eu-gb.codeengine.appdomain.cloud) - sign in with `demo` / `archer-demo-2026`
 
-Built on IBM watsonx.ai, FastAPI and React. Deployed on IBM Code Engine.
+Built on IBM watsonx.ai, FastAPI and React, and deployed on IBM Code Engine.
+The data is synthetic. The demo scales to zero when idle, so the first
+question after a quiet spell can take a few seconds.
 
 ![Archer answering "Show me the top 5 customers by revenue" with a one-line summary, a table and its SQL, then answering the follow-up "How many deals did the third one do?" - interpreted as Helix Bridge Holdings Ltd - with 321 and its SQL](docs/images/demo.png)
 
 <details>
-<summary><strong>Watch a conversation</strong> (animated, about 25 seconds)</summary>
+<summary>Watch a conversation (animated, about 25 seconds)</summary>
 
 ![A conversation with Archer: the top five customers, a follow-up about the third one, an explanation of the query, and a clarifying question answered with one click](docs/images/demo.gif)
 
 </details>
-
----
-
-> **Note on the demo.** It runs on synthetic data and scales to zero when idle,
-> so the first question may take a few seconds while a container starts. That
-> is a deliberate cost decision, not a fault.
 
 ## What it does
 
@@ -37,103 +34,58 @@ Built on IBM watsonx.ai, FastAPI and React. Deployed on IBM Code Engine.
   WHERE STRFTIME('%Y', document_date) = '2024'
 ```
 
-The generated SQL is shown beside every answer. A text-to-SQL system that hides
-its query is asking to be trusted without giving you any way to check it, and
-`COUNT(*)` versus `COUNT(DISTINCT document_number)` is the difference between
-7,103 and 15,847 on this dataset.
+Every answer shows its SQL, so you can check how the figure was reached. On
+this dataset, counting rows instead of distinct documents would have given
+15,847.
 
-Then keep going:
+A conversation carries on from there:
 
 ```
 "Show me the top 5 customers by revenue"     a table, led by a one-line summary
 "How many deals did the third one do?"       Interpreted as: How many deals did
                                              Helix Bridge Holdings Ltd do?  ->  321
 "Can you explain that query?"                a plain-English walk through the SQL
-"What about the second one?"  (no context)   "The second what?" - with options to click
+"What about the second one?"  (no context)   a clarifying question, with options to click
 ```
 
-## What this demonstrates
+## What it shows
 
-- **Measured AI accuracy, not claimed.** A 61-case evaluation suite grades by
-  executing the generated SQL and comparing results - follow-ups, explanations
-  and hold-out cases included - and the numbers are published, including the
-  ones that were unflattering.
-- **A conversation, not a query box.** Follow-ups resolved from context and
-  shown as *Interpreted as*, explanations of its own SQL, up to three questions
-  per message, a clarifying question instead of a guess, and a polite decline
-  for anything that is not about the data.
-- **Prompt engineering treated as engineering.** Prompts are versioned files
-  with changelogs, and every change is measured before and after.
-- **Security designed around the model being untrustworthy.** The prompt is not
-  a boundary; the database engine is - generated SQL runs read-only, through an
-  authorizer that permits reading one table and nothing else.
-- **Cost control that actually refuses.** IBM Cloud has no hard spending limit,
-  so the ceiling is in the application.
-- **Production practices**: 210 tests, four CI jobs, automated deployment,
+- Accuracy is measured by a 61-case evaluation suite that runs the generated
+  SQL and compares results with a reference query. It scores 98.4%, and the
+  one failure is published. See [evals](docs/evals.md).
+- Follow-ups are resolved from the conversation and shown as *Interpreted as*.
+  Archer explains its own SQL, answers up to three questions per message, asks
+  when a question can't be answered without guessing, and declines anything
+  that isn't about the data.
+- Prompts are versioned files, and every change is measured before and after.
+- The database engine enforces the security: generated SQL runs on a read-only
+  connection whose authorizer allows reading one table. See
+  [security](docs/security.md).
+- A daily message ceiling in the application caps the cost, because IBM Cloud
+  spending limits only send notifications.
+- 216 unit tests, four CI jobs, automatic deployment on every merge, a
   non-root multi-stage container, scale-to-zero hosting.
 
-## The number that matters
-
-The changelog for an earlier release claimed *"96-97% accuracy maintained"*
-after a model migration. Nothing substantiated it, so it got measured:
-
-| Model | Prompts | Execution accuracy | Median latency |
-|---|---|---|---|
-| `llama-3-3-70b-instruct` | v2 | 92.9% | 7.25s |
-| `mistral-small-3-1-24b` | v2 | 89.3% | 0.83s |
-| **`mistral-small-3-1-24b`** | **v3** | **100%** | **0.50s** |
-
-**The claim was wrong.** The migration was a trade - 3.6 points of accuracy for
-roughly 8.7x lower latency - not the free win it was described as.
-
-What closed the gap was not a bigger model. The prompt described the *columns*
-but never the *values inside them*, so the model could not know that
-`document_type` holds `'Credit'`, or that a flag is `'Yes'` and not `'Y'`. It
-guessed, plausibly and wrongly. **Both models made the same mistake
-independently**, which is what identified it as a prompt gap rather than a model
-weakness.
-
-The suite has since grown to 61 cases - follow-ups, explanations, declines,
-multi-part messages, clarifying questions - and scores **98.4%** with the
-conversational features on. The one failure is a hold-out case, written once
-and never tuned against, and it is reported rather than fixed: asked which
-partner had the most credit notes, the model counts lines rather than
-documents. A high score on a suite you wrote means *no known failures*, not
-*no failures* - see [`docs/evals.md`](docs/evals.md), which says so at more
-length.
-
-## Architecture
+## How it works
 
 ![How a question becomes an answer: FastAPI claims a daily budget, a planner reads the question in the context of the conversation, and either the SQL generator queries a read-only SQLite database, a conversational prompt explains, or an off-topic request is declined](docs/images/architecture.svg)
 
-**It holds a conversation.** The browser keeps the last three exchanges and
-sends them with each question, so a follow-up such as *"how many deals did the
-second one do?"* works. A planner call reads the question in that context and
-restates it so it stands on its own - shown to the user as *Interpreted as* -
-before the SQL generator sees it. It can also explain an answer or its SQL, and
-politely declines anything that is not about the data. Nothing is stored on the
-server.
+The browser sends each question with the last three exchanges. A planner call
+reads it in that context, decides whether it is a data question, conversation
+about the data, or off-topic, and restates it so it stands on its own. Data
+questions go to the SQL generator, and the query runs against a read-only
+SQLite database. A failed query gets one corrected attempt, and rankings get a
+one-line summary that is checked against the table before it is shown. Nothing
+is stored on the server.
 
-One message can ask **up to three things**, each answered in turn, and a
-question that cannot be answered without guessing gets a **clarifying
-question** with options to click rather than a guess.
+The dataset is generated at build time from a seeded script: 100,000 rows and
+37 columns, identical for a given seed.
 
-A query that fails gets **one corrected attempt**, with the error shown to the
-model, and a ranking or breakdown comes with a **one-line summary** - checked
-before it is shown, so every figure in it is in the table beneath.
-
-Planning is a separate model call from SQL generation. A combined prompt would
-have to decide *and* produce SQL in one pass, and a model shown fifteen SQL
-examples will write SQL for "hello".
-
-The dataset is **generated at build time** from a seeded script - 100,000 rows,
-37 columns, byte-identical for a given seed. It was previously downloaded from
-object storage at startup; removing that dropped a cloud service, a credential,
-a class of startup failure, and a 47MB download from every cold start.
-
-Full detail in [`docs/architecture.md`](docs/architecture.md).
+Full detail in [architecture](docs/architecture.md).
 
 ## Running it
+
+Requires Python 3.12, Node 20, an IBM Cloud API key and a watsonx.ai project.
 
 ```bash
 # Backend
@@ -146,7 +98,7 @@ cp .env.example .env                        # then fill it in
 npm --prefix frontend install
 npm --prefix frontend run build
 
-# Serve
+# Serve on http://localhost:8080
 .venv/Scripts/python.exe -m uvicorn main:app --app-dir backend --port 8080
 ```
 
@@ -156,40 +108,42 @@ Or build the image, which does all of it:
 docker build -f backend/Dockerfile -t archer .
 ```
 
-Requires an IBM Cloud API key and a watsonx.ai project. See
-[`.env.example`](.env.example).
+To build your own version on your own data, see
+[make your own](docs/make-your-own.md).
 
 ## Testing and evaluation
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # 210 tests
-python evals/run_evals.py                                          # accuracy
+.venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q   # unit tests, offline
+python evals/run_evals.py                                          # accuracy, real model calls
 ```
 
-The evaluation suite is deliberately **not** in CI: it makes real model calls
-and needs live credentials.
+The evaluation suite needs live credentials and costs about 2p a run, so it is
+run by hand before and after any prompt or model change rather than in CI.
 
 ## Documentation
 
 | | |
 |---|---|
 | [Architecture](docs/architecture.md) | How a question becomes an answer |
-| [Prompts](docs/prompts.md) | What each prompt does, what was tried and rejected |
+| [Prompts](docs/prompts.md) | What each prompt does and why |
 | [Evaluation](docs/evals.md) | How accuracy is measured, and the results |
-| [Security](docs/security.md) | Threat model, controls, and honest limitations |
-| [Testing](docs/testing.md) | What the tests cover - and what they missed |
-| [CI and automation](docs/ci.md) | What runs on every push, and how deployment works |
-| [Infrastructure](infrastructure/README.md) | Deployment, scaling and cost |
+| [Security](docs/security.md) | Threat model, controls and limitations |
+| [Testing](docs/testing.md) | What the tests cover and what they can't |
+| [CI and deployment](docs/ci.md) | What runs on every push, and how a merge goes live |
+| [Infrastructure](infrastructure/README.md) | IBM Cloud resources, scaling and cost |
+| [Make your own](docs/make-your-own.md) | Fork it and point it at your own data |
+| [Contributing](CONTRIBUTING.md) | Rules for changes |
 
 ## Background
 
-Archer began as a proof-of-concept built at a UK IBM distributor to show what
-natural-language querying over sales data could look like. It was a demo rather
-than a system anyone used day to day.
+Archer began as a proof of concept at a UK IBM distributor, to show what
+natural-language querying over sales data could look like. It was a demo, not
+a system in daily use.
 
-This repository is a rebuild of that idea as a public portfolio project on my
-own infrastructure, with synthetic data throughout. No employer data, code or
-configuration is present, and the original deployment has been retired.
+This repository rebuilds that idea as a public project on my own IBM Cloud
+account, with synthetic data throughout. No employer data, code or
+configuration is present.
 
 ## Licence
 

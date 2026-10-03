@@ -1,6 +1,6 @@
 # Testing
 
-**113 unit tests**, run on every push and pull request.
+216 unit tests, run in CI on every push and pull request (see [CI](ci.md)).
 
 ```bash
 .venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q
@@ -8,90 +8,58 @@
 
 ## Isolation
 
-The suite touches nothing outside the process. No `.env`, no `sales.db`, no
-IBM Cloud, no watsonx, no network. That is a deliberate property, not a
-convenience:
+The suite touches nothing outside the process: no `.env`, no `sales.db`, no
+IBM Cloud, no watsonx and no network.
 
-- `conftest.py` injects stub values for `JWT_SECRET_KEY`, `CSRF_SECRET_KEY` and
-  `WEBHOOK_SECRET` via `os.environ.setdefault`, because modules read them at
-  import time.
-- **Cloud and model variables are deliberately absent.** Any test that
-  accidentally reaches a live service fails loudly rather than passing quietly
-  against real infrastructure.
-- Model calls are mocked at the name they are looked up under.
-- SQL-path tests build a small temporary SQLite file rather than using the real
+- `conftest.py` sets stub values for `JWT_SECRET_KEY`, `CSRF_SECRET_KEY` and
+  `WEBHOOK_SECRET`, because modules read them at import time.
+- Cloud and model variables are left unset, so a test that reaches a live
+  service by mistake fails instead of quietly passing.
+- Model calls are mocked where they are looked up.
+- SQL tests build a small temporary SQLite file instead of using the real
   dataset.
-- Most tests assemble a minimal FastAPI app containing only the router under
-  test, so the real application's lifespan never runs.
+- Most tests build a minimal FastAPI app with only the router under test, so
+  the real application's startup never runs.
 
 ## What is covered
 
 | Area | What is asserted |
 |---|---|
 | SQL extraction | Multi-line and fenced replies, `WITH`, statement ends outside quoted strings, braces in questions |
-| Query guard | Writes, `ATTACH`, `PRAGMA`, internal tables, `load_extension` and second statements refused by SQLite; runaway queries interrupted; row cap |
-| Planner and history | Plans parsed from fenced or noisy replies; invalid plans fall back to a data question as typed; history trimmed to three exchanges and its size limits, the latest never dropped; a role marker in history stays inside the user message; off-topic declined with no second model call; a question is restated only when there is history to resolve |
-| Self-correction and summaries | A failed or unexpectedly empty query is retried once and kept only if better; never after a guard refusal or an empty existence check; database errors never reach the browser; summaries with figures not in the result are dropped; no summary for single values, name lists or deal lines; a capped row count is not treated as a fact |
-| Multi-part and clarify | Mixed and clarify plans parsed; parts answered in order and one failure does not sink the others; a fourth part noted; a clarifying question runs no query, keeps its options in history, and is overruled for a message with nothing to resolve |
-| Pipeline | Scalar, table, empty and refused results as structured parts; a NULL sum is empty, not "None"; a model outage is an answer, not a 500; history items are capped; the legacy answer string is unchanged |
-| Prompts | Role markers become chat messages; a marker in user text cannot start one; single-pass substitution; front matter never sent |
-| JWT | Payload, expiry, tampering, wrong signing key |
-| CSRF | Generation, validation, tampered tokens |
+| Query guard | Writes, `ATTACH`, `PRAGMA`, internal tables, other tables and views, `load_extension` and second statements refused by SQLite; CTEs allowed; runaway queries interrupted; row cap |
+| Planner and history | Plans parsed from fenced or noisy replies; an unparseable plan falls back to a data question as typed; history trimmed to three exchanges and its size limits, keeping the latest; a role marker in history stays inside the user message; off-topic declined with no second model call; a question restated only when there is history to resolve |
+| Self-correction and summaries | A failed or unexpectedly empty query retried once and kept only if better; no retry after a guard refusal or an empty existence check; database errors never reach the browser; summaries with figures not in the result dropped; no summary for single values, name lists or deal lines |
+| Multi-part and clarify | Mixed and clarify plans parsed; parts answered in order, and one failure doesn't stop the others; a fourth part noted; a clarifying question runs no query and is overruled for a message with nothing to resolve |
+| Pipeline | Scalar, table, empty and refused results as structured parts; a NULL sum shown as empty; a model outage returned as an answer, not a 500 |
+| Prompts | Role markers become chat messages; a marker in user text can't start one; single-pass substitution; front matter never sent |
+| Schema | The column descriptions match the generated schema, and the SQL prompt's default columns match the guide's |
+| JWT and CSRF | Payload, expiry, tampering, wrong signing key |
 | Auth routes | `/login` GET and POST, cookie issuance, bad credentials |
-| `/ask` | API key handling, both routes, result formatting, DB errors, 100-row truncation |
-| `/api/ask` | Missing, malformed, expired and wrongly-signed cookies; **the API key is rejected**; both routes return identical answers |
-| Page routes | The app shell stays behind the login wall; retired pages redirect |
-| App assembly | Startup, routing, JSON-401-versus-redirect, a full composition check |
-| Cost ceiling | Limit enforced, daily reset, thread safety, malformed config fails closed |
+| `/ask` and `/api/ask` | API key handling; missing, malformed, expired and wrongly signed cookies; `/api/ask` rejects the API key; both routes return identical answers |
+| Pages and app | The app stays behind the login; old paths redirect; JSON 401 for `/api/`, redirect for pages |
+| Cost ceiling | Limit enforced, daily reset, thread safety, a malformed setting keeps the default |
 
-Two of those deserve calling out, because they exist to catch a specific
-mistake rather than to raise a number:
+Two tests guard against specific mistakes. `/ask` and `/api/ask` must return
+identical answers, so the two paths can't drift apart if someone duplicates the
+logic. And the cost ceiling must keep its default when the setting is
+malformed, because failing open is the expensive direction.
 
-**`/ask` and `/api/ask` must return identical answers.** Both call one shared
-function. The test exists so that if someone ever duplicates the orchestration,
-the two paths cannot silently drift apart.
+## What the tests can't catch
 
-**The cost ceiling fails closed.** A malformed `DEMO_DAILY_QUESTION_LIMIT`
-falls back to the default rather than disabling the limit, because failing open
-is the expensive direction. It is also tested under concurrent threads, since
-the budget is consumed from worker threads.
+Unit tests check logic. They can't tell whether the answers are right or
+whether a person can use the page. Both have gone wrong here with every test passing:
 
-## What the tests do not catch, and why that matters
+- Three interface defects reached the live demo: the SQL sat out of reach
+  beneath a sticky form, answers didn't scroll into view, and the web fonts
+  failed to load. They were found by using the app in a real browser.
+- Moving the prompts from Python into files dropped accuracy from 89% to 11%.
+  The loader stripped a trailing newline the model relied on, and the route
+  still returned well-formed answers. Only the evaluation suite saw it.
 
-This is the honest part, and it is here because the project has the evidence.
+So there are three layers:
 
-**Three user-visible defects shipped past a green suite.** The generated SQL was
-rendered correctly and positioned underneath a sticky form where no one could
-scroll to it; answers did not scroll into view; every web font 404'd. Every
-element was present, correct, and in the DOM. Every test passed. They were
-found by driving a real browser.
-
-**A prompt change dropped accuracy from 89.3% to 10.7%** while all 101 tests of
-the day passed. Moving prompts from Python into files stripped a trailing
-newline, and the model stopped producing SQL. Nothing about the application was
-broken in a way a unit test could see - the route still returned 200 and the
-answer was still well-formed prose.
-
-So the suite is one of three layers, and it is the cheapest rather than the
-most convincing:
-
-| Layer | Catches | Cost |
+| Layer | Catches | When |
 |---|---|---|
-| Unit tests | Logic, auth boundaries, formatting | Free, every push |
-| [Evaluation suite](evals.md) | Whether answers are right | Real model calls, run deliberately |
-| Driving the browser | Whether a person can use it | Manual, before release |
-
-A test that asserts an element exists cannot tell you a user can reach it.
-
-## CI
-
-Four jobs on every push and pull request:
-
-- **Compile and validate** - syntax, TOML, YAML
-- **Unit tests** - the suite above
-- **Frontend** - typecheck and production build, Node 20 LTS
-- **Docker build** - the image builds from a clean checkout
-
-The evaluation suite is **not** in CI. It makes real model calls and needs live
-credentials, which is the wrong thing to attach to every pull request. It is
-run deliberately, before and after any change to a prompt or a model.
+| Unit tests | Logic, auth boundaries, formatting | Every push, in CI |
+| [Evaluation suite](evals.md) | Whether the answers are right | Before and after any prompt or model change |
+| Using the app in a browser | Whether a person can use it | Before any interface change ships |

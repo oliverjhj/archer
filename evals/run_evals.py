@@ -2,12 +2,7 @@
 """
 Evaluate the Archer text-to-SQL pipeline against a fixed set of cases.
 
-Why this exists
----------------
-The v2.6.0 changelog claimed "96-97% accuracy maintained" after a model
-migration. Nothing substantiated it. This measures the claim instead of
-repeating it, and the number it produces is the one that gets published -
-whichever way it comes out.
+Results are published in docs/evals.md, whichever way they come out.
 
 How grading works
 -----------------
