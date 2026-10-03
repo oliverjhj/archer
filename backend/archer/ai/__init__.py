@@ -1,2 +1,2 @@
-"""Archer AI Intelligence Modules"""
+"""Archer Intelligence Modules"""
 

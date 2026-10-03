@@ -1,2 +1,2 @@
-"""Archer AI API Routes"""
+"""Archer API Routes"""
 
