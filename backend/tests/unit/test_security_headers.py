@@ -40,11 +40,23 @@ def _build_test_app() -> FastAPI:
     async def health() -> JSONResponse:
         return JSONResponse({"ok": True})
 
+    @app.get("/static/style.css")
+    async def stylesheet() -> JSONResponse:
+        return JSONResponse({"ok": True})
+
     return app
 
 
 _test_app = _build_test_app()
 _client = TestClient(_test_app)
+
+
+@pytest.mark.unit
+def test_static_files_are_revalidated_on_every_visit() -> None:
+    """The login stylesheet keeps its URL across deploys, so it is never
+    reused from cache without checking for a newer version."""
+    assert _client.get("/static/style.css").headers["Cache-Control"] == "no-cache"
+    assert "Cache-Control" not in _client.get("/health").headers
 
 
 # ---------------------------------------------------------------------------

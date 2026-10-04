@@ -148,6 +148,13 @@ def test_post_login_invalid_password_does_not_set_jwt(
     assert response.status_code == 200
     assert "archer_session" not in response.cookies
 
+    # The error is announced, styled only by the stylesheet, and shown above
+    # the fields rather than below the button.
+    html = response.text
+    assert '<div class="login-error" role="alert">' in html
+    assert "login-error\" style=" not in html
+    assert html.index("login-error") < html.index('id="username"')
+
 
 # ---------------------------------------------------------------------------
 # POST /login — CSRF rejection
