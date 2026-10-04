@@ -1,113 +1,101 @@
 # Architecture
 
-One container, one database file, three prompts, and a model call.
+One container on IBM Code Engine, one SQLite file, five prompts and the
+watsonx.ai chat API.
 
 ```
                     ┌──────────────────────────────┐
    browser ────────▶│  FastAPI (IBM Code Engine)   │
                     │                              │
                     │  /login      Jinja + CSRF    │
-                    │  /           React SPA       │
+                    │  /           React app       │
                     │  /api/ask    cookie auth ────┼──┐
+                    │  /api/schema cookie auth     │  │
                     │  /ask        x-api-key   ────┼──┤
                     └──────────────────────────────┘  │
                                                       ▼
                                           ┌────────────────────┐
-                                          │  answer_question() │  budget
+                                          │  answer_question() │  daily budget
                                           ├────────────────────┤
                                           │  run_turn()        │  pipeline
                                           └─────────┬──────────┘
                                                     │
-                        ┌───────────────────────────┼──────────────┐
-                        ▼                           ▼              ▼
-                   planner prompt           sql_generator      chat prompt
-                        │                           │              │
-                        └──────▶ watsonx.ai ◀───────┴──────────────┘
-                                                    │
-                                                    ▼
-                                        sales.db (SQLite, read-only)
+                    ┌──────────────┬────────────────┼──────────────┐
+                    ▼              ▼                ▼              ▼
+                 planner     sql_generator      summary          chat
+                    │         (+ sql_retry)         │              │
+                    └──────────────┴──▶ watsonx.ai ◀┴──────────────┘
+                                   │
+                                   ▼
+                       sales.db (SQLite, read-only)
 ```
 
 ## Request flow
 
-1. A question arrives at `/api/ask` (browser, session cookie) or `/ask`
-   (webhook, `x-api-key`). Both call the same `answer_question()`; nothing is
-   duplicated between them.
-2. The **daily budget** is claimed before anything expensive happens, then
-   `run_turn()` in `pipeline.py` does the rest. It returns a structured
-   `Turn`: what was decided, the SQL, the result as display strings, and a
-   status for every outcome. The response carries that turn for the React app
-   and the Markdown `answer` that `/ask` callers have always received. The
-   evaluation suite calls `run_turn()` directly, so it measures exactly what
-   the demo runs.
-3. The **planner** reads the question with the last three exchanges, which
-   the browser sends along with it, and returns a small JSON plan: is this a
-   data question, data-related conversation, or off-topic - and what is the
-   question once any reference to the conversation ("the second one", "and
-   for 2024?") is resolved? Off-topic requests get a fixed decline with no
-   further model call. Without earlier exchanges the question is used exactly
-   as typed. A message asking up to three things is split into parts, each
-   answered in turn; one that cannot be answered without guessing gets a
-   clarifying question with options instead.
-4. Data questions go to the **SQL generator** - the restated question,
-   never the conversation - which is given the live schema
-   read from the database rather than a hardcoded list.
-5. The generated SQL is executed through `run_select`: a read-only connection
-   whose SQLite authorizer permits reading `sales_data` and nothing else, one
-   statement, a deadline and a 100-row cap. A query that fails, or finds
-   nothing where something was expected, gets **one corrected attempt** - kept
-   only if it does better, and never after a refusal by the guard.
-6. A ranking or breakdown gets a **written summary**, checked before it is
-   shown: every number in it must appear in the result, or it is dropped.
-7. Conversational questions go to the **chat prompt**, which explains from the
-   conversation and a glossary rather than querying.
+1. A question arrives at `/api/ask` from the browser, with a session cookie,
+   or at `/ask` from a machine caller, with an `x-api-key`. Both call the same
+   `answer_question()`.
+2. `answer_question()` claims one message from the daily budget, then calls
+   `run_turn()` in `pipeline.py`. That returns a structured `Turn`: the plan,
+   the SQL, the result as display strings, and a status for every outcome. The
+   response carries the `Turn` for the React app and a Markdown `answer` for
+   `/ask` callers. The evaluation suite calls `run_turn()` directly, so it
+   measures what the demo runs.
+3. The planner reads the question with the last three exchanges, which the
+   browser sends with it. It returns a plan: a data question, conversation
+   about the data, a clarifying question, or off-topic, with each part of the
+   message restated to stand alone. Off-topic requests get a fixed decline
+   with no further model call. With no earlier exchanges the question is used
+   as typed.
+4. Each data part goes to the SQL generator, which sees only the restated
+   question and the live column list read from the database.
+5. The SQL runs through `run_select()`: a read-only connection whose SQLite
+   authorizer allows reading the one queryable table, one statement, a
+   five-second deadline and a 100-row cap. A query that fails, or finds nothing
+   where something was expected, gets one corrected attempt, kept only if it
+   does better.
+6. A ranking or breakdown gets a written summary. Every number in it must
+   appear in the result, or it is dropped.
+7. Chat parts go to the chat prompt, which answers from the conversation and a
+   glossary of the columns, without querying.
 
-Model calls are dispatched with `asyncio.to_thread`. The watsonx SDK is
-synchronous, and calling it directly from an async handler would block the
-event loop for the whole round trip - seconds during which nothing else on the
-process is served.
+The watsonx SDK is synchronous, so model calls run in `asyncio.to_thread` to
+keep the event loop free while a call is in progress.
+
+Prompt detail is in [prompts](prompts.md).
 
 ## The data
 
-`sales.db` is **generated at image build time** by
-[`scripts/generate_dataset.py`](../scripts/generate_dataset.py): 100,000 rows
-of synthetic UK sales data across 37 columns, from a fixed seed, so the same
-seed always produces a byte-identical database.
+`sales.db` is generated when the image is built, by
+[`scripts/generate_dataset.py`](../scripts/generate_dataset.py): 100,000 rows of
+synthetic UK sales data across 37 columns in one table, `sales_data`. The seed
+is fixed, so the same seed always gives a byte-identical database, and the
+evaluation suite can rely on exact results.
 
-It was previously downloaded from IBM Cloud Object Storage at startup. That was
-removed: the dataset is static and about 47MB, so fetching it on every cold
-start paid a download and a set of credentials for nothing, and the deployment
-scales to zero, which makes cold-start cost real. Generating it also means the
-evaluation suite can rely on fixed rows.
-
-The database is opened **read-only** and the application refuses to start if it
-is missing or invalid. Failing loudly at deploy time is better than serving
-errors on every question.
+The table name is one constant, `TABLE_NAME` in `backend/archer/db/database.py`.
+The application opens the database read-only and refuses to start if the file
+is missing, empty, not SQLite, or lacks that table.
 
 ## Authentication
 
-Two surfaces, deliberately:
-
 | Route | Authenticated by | For |
 |---|---|---|
-| `/api/ask` | `archer_session` HttpOnly cookie | The browser |
+| `/api/ask`, `/api/schema` | `archer_session` HttpOnly cookie | The browser |
 | `/ask` | `x-api-key` matching `WEBHOOK_SECRET` | Machine callers |
 
-The browser never holds `WEBHOOK_SECRET`. That is the entire reason `/api/ask`
-exists: the frontend authenticates with a session cookie, and the server
-supplies the secret on its behalf.
+The browser never holds `WEBHOOK_SECRET`. It signs in with the session cookie,
+and `/api/ask` rejects the API key outright.
 
-A 401 is handled differently by path. Page routes redirect to `/login`, which
-is right for a browser. Anything under `/api/` gets a JSON 401, because a
-`fetch()` call cannot do anything useful with a 303 to an HTML login page and
-would otherwise receive a login page where it expected data.
+A missing or invalid session is handled by path. Pages redirect to `/login`.
+Anything under `/api/` gets a JSON 401, which the React app can show as a
+message.
 
 ## Serving
 
-One image serves both halves. A `node:20-slim` build stage compiles the React
-application; Node never reaches the runtime image. FastAPI serves the built
-bundle from the same origin as the API, which keeps the session cookie working
-without CORS and means one thing to deploy rather than two.
+One image serves both halves. A `node:20-slim` stage builds the React app, and
+Node never reaches the runtime image. FastAPI serves the built files from the
+same origin as the API, so the session cookie works without CORS and there is
+one thing to deploy.
 
 ## Layout
 
@@ -117,55 +105,52 @@ backend/archer/
 ├── pipeline.py            run_turn(): one message to a structured Turn
 ├── api/
 │   ├── ask.py             answer_question() and both entry points
-│   ├── auth_routes.py     /login, CSRF, cookie issuance
-│   └── page_routes.py     app shell and legacy redirects
+│   ├── auth_routes.py     /login, CSRF, session cookie
+│   ├── page_routes.py     the app shell, behind the login
+│   └── schema_routes.py   /api/schema for the in-app guide
 ├── ai/
-│   ├── llm.py             per-task watsonx chat clients
-│   ├── prompts.py         prompt loading from prompts/*.md
-│   ├── planner.py         kind of reply, and the question restated
+│   ├── llm.py             per-step watsonx chat clients
+│   ├── prompts.py         loading prompts/*.md into chat messages
+│   ├── planner.py         the plan, and the question restated
 │   ├── sql_generator.py   SQL generation, extraction, one retry
 │   ├── summary.py         result summaries and the check on their figures
 │   └── chat.py            conversational replies
 ├── auth/                  JWT and CSRF
 ├── core/
-│   ├── usage.py           the daily cost ceiling
+│   ├── usage.py           the daily message ceiling
 │   ├── limiter.py         per-IP rate limiting
-│   ├── paths.py           path resolution for both layouts
+│   ├── logging.py         log format
+│   ├── paths.py           paths in the repo and in the container
 │   └── security_headers.py
 └── db/
-    ├── database.py        dataset verification, schema and date range
-    └── query.py           run_select: the only way generated SQL runs
+    ├── database.py        TABLE_NAME, startup check, columns, date range
+    ├── catalogue.py       column descriptions and known values
+    └── query.py           run_select(): the only way generated SQL runs
 ```
 
-Prompts live in [`prompts/`](../prompts) as versioned Markdown, not as string
-literals. See [`prompts.md`](prompts.md).
+The frontend is in `frontend/src`: React 18 with IBM's Carbon design system.
 
-## Design decisions worth defending
+## Design decisions
 
-**Planning is a separate call.** A combined prompt would have to decide and
-produce SQL in one pass, and a model shown fifteen SQL examples will write SQL
-for "hello". The planner also restates follow-ups, so the SQL generator only
-ever sees a standalone question - the kind its 100% was measured on.
+**Planning is a separate call.** The SQL generator only ever sees a standalone
+question, so its accuracy is measured on one kind of input. A combined prompt
+would also have to decide when not to write SQL.
 
-**The browser holds the conversation.** History goes from the browser to the
-server with each question and is stored nowhere. That keeps the server
-stateless, means "Clear conversation" really does clear it, and makes the
-history untrusted input by construction - which is how it is treated.
+**The browser holds the conversation.** History is sent with each question and
+stored nowhere. The server stays stateless, "Clear conversation" really clears
+it, and history is treated as untrusted input.
 
-**Execution-based evaluation.** Accuracy is measured by running both the
-reference and the generated query and comparing results, not by comparing SQL
-text. Two different queries can be equally correct. See [`evals.md`](evals.md).
+**Accuracy is measured by execution.** The suite compares query results. See
+[evals](evals.md).
 
-**Minimum scale zero.** The demo is idle almost all the time, so an always-warm
-instance would be paying for nothing. The cost is a cold start on the first
-question after a quiet period, which the interface says out loud. This is why
-image size and startup work are treated as they are.
+**Minimum scale is zero.** The demo is idle most of the time, so an
+always-running instance would cost money for nothing. The price is a cold start
+of a few seconds after a quiet period, which the interface mentions.
 
-**A cost ceiling in the application.** IBM Cloud has no hard spending limit -
-its spending controls are notifications, which arrive after the money is spent.
-So the ceiling is `core/usage.py`, where it can actually refuse.
+**The cost ceiling is in the application.** IBM Cloud spending controls send
+notifications but stop nothing, so `core/usage.py` refuses messages once the
+day's budget is spent.
 
-**Not IBM-locked.** A single container listening on `$PORT`, no persistent
-state, no cloud SDK in the runtime path. It runs unchanged on any container
-host. The only real IBM dependency is watsonx.ai, which is the point of the
-project rather than an accident of hosting.
+**It runs on any container host.** A single container listening on `$PORT`,
+with no persistent state and no cloud SDK in the request path. watsonx.ai is
+the only IBM service the application itself calls.

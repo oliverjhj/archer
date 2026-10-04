@@ -5,8 +5,7 @@
 # (workflow_dispatch) to redeploy without a new commit.
 #
 # Gated on CI rather than triggered by the push itself, so a commit that fails
-# its tests never reaches the live demo. Previously deploys were manual only,
-# which meant merged work sat unreleased until someone remembered to run this.
+# its tests never reaches the live demo.
 #
 # This workflow builds the Docker image from the repo root, pushes it to IBM
 # Container Registry, and updates the existing Code Engine application to use
@@ -15,9 +14,8 @@
 # Runtime environment variables and secrets are managed in Code Engine directly
 # and are not read or modified by this workflow.
 #
-# One-time IBM Cloud prerequisites must be completed before the first manual
-# run, including GitHub secret/variable setup and any required Code Engine
-# build association cleanup.
+# The Code Engine application must exist before the first run: this workflow
+# updates it and never creates it. Setup is in docs/make-your-own.md.
 #
 # Required GitHub Secret:
 #   IBM_CLOUD_API_KEY

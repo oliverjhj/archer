@@ -1,273 +1,152 @@
 # Evaluation
 
-## Why this exists
-
-The v2.6.0 changelog claimed **"96-97% accuracy maintained"** after migrating
-from `llama-3-3-70b-instruct` to `mistral-small-3-1-24b-instruct-2503`.
-
-Nothing substantiated it. No suite existed, no number had been produced, and
-the figure had been sitting in the changelog being repeated. This measures it.
+The suite in [`evals/`](../evals) measures whether Archer gives the right
+answer. It runs real questions through the application's own pipeline against
+the live model, and records the result of every case.
 
 ## How accuracy is measured
 
-By **execution**, not string comparison. The reference query and the generated
-query both run against the same database and their result sets are compared.
-
-This matters more than it sounds. Two different SQL statements can be equally
-correct, and grading on text would fail perfectly good queries for choosing a
-different join order or a different way of expressing a date filter. The
-question is whether the user got the right answer.
-
-Two levels are reported:
+The reference query and the generated query both run against the same
+database, and their result sets are compared. Two different queries can be
+equally correct, so the SQL text is never compared.
 
 | Metric | Meaning |
 |---|---|
-| **Execution accuracy** | The result sets are identical. This is the headline number |
-| Value accuracy | Every value in the reference result appears in the generated result. Catches "right numbers, extra columns" |
-| Valid SQL rate | The generated query executed at all |
+| Execution accuracy | The result sets are identical. The headline number for data questions |
+| Value accuracy | Every value in the reference result appears in the generated one, which catches the right numbers with extra columns |
+| Valid SQL rate | The generated query ran at all |
 | Routing accuracy | The planner chose the right kind of reply: data, chat or decline |
-| Interpretation | A follow-up was restated correctly - checked separately, so a failure says whether the planner or the SQL went wrong |
-| Hold-out | Cases written once and run, never tuned against |
+| Interpretation | A follow-up was restated correctly. Graded separately, so a failure shows whether the planner or the SQL went wrong |
+| Hold-out | Cases written once and never tuned against |
 
-Routing is graded separately because a greeting sent to the SQL generator
-wastes a model call and produces nonsense, and that failure is invisible in a
-SQL-only score.
+Overall accuracy counts a data case as passed on execution accuracy, a chat
+case when the reply contains what it must, and a decline case when the request
+is declined.
 
-The suite is 33 cases across six categories: aggregates, ranking, filtering,
-existence checks, listing, and conversational routing.
+## The cases
 
-## Results
+61 cases in [`evals/cases.yaml`](../evals/cases.yaml), each stating what the
+pipeline should do:
 
-All runs use the same generated dataset. The first three use the original 33
-cases on the text-generation API; the current run adds one regression case (a
-question containing braces) and uses the chat API.
-
-| Run | Model | Prompts | Execution accuracy | Routing | Valid SQL | Median latency |
-|---|---|---|---|---|---|---|
-| Baseline | `llama-3-3-70b-instruct` | v2 | 92.9% | 100% | 100% | 7.25s |
-| Baseline | `mistral-small-3-1-24b` | v2 | 89.3% | 100% | 100% | 0.83s |
-| Text generation | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
-| Chat API | `mistral-small-3-1-24b` | v3 | 100% | 100% | 100% | 0.50s |
-| Planner (52 cases) | `mistral-small-3-1-24b` | planner v1, SQL v3, chat v3 | 100% | 100% | 100% | 0.89s |
-| Self-correction and summaries (55 cases) | `mistral-small-3-1-24b` | planner v1, SQL v4, chat v3 | 97.6% data, 98.2% overall | 100% | 100% | 0.95s |
-| **Current: multi-part and clarify (61 cases)** | **`mistral-small-3-1-24b`** | **planner v2, SQL v4, chat v3** | **97.6% data, 98.4% overall** | **100%** | **100%** | **0.97s** |
-
-### Multi-part messages and clarifying questions
-
-Six cases were added: two multi-part messages graded part by part (a data and
-a chat part; two data parts), two messages that must be met with a clarifying
-question, and two hold-outs - a two-part question, and *"Compare that with the
-year before"* with nothing to compare. Every other case doubles as a
-must-not-clarify case: a clear question met with a question fails.
-
-That is what the first run caught. The new cases passed, but *"Show me the top
-5 customers by revenue"* was answered with *"partners or end users?"*. The
-prompt was tightened and the same question was asked again, so the rule was
-moved into code: a clarifying question is only accepted when the message
-contains a word that points at something. The final run scored 98.4% on 61
-cases, the only failure the credit-notes hold-out, and both new hold-outs
-passed.
-
-### Self-correction and summaries
-
-A query that fails, or finds nothing where something was expected, now gets
-one corrected attempt: the model sees its own query and the error. On the
-suite, **first attempts alone scored 95.1% on data questions; with the retry,
-97.6%**. The one case it rescued failed first with *"no such column:
-revenue"* and passed on the second attempt. The retry is never used after a
-refusal by the query guard, nor after an empty existence check, where "no such
-partner" is the right answer - and it is kept only if it does better.
-
-The SQL prompt went to v4 with one rule, for deal values: the average,
-smallest or largest *deal* is a total per document, aggregated afterwards. Its
-first wording overreached - the model began measuring "most licences" by
-revenue - and was narrowed. That case had been a hold-out; since a prompt
-change was made because of it, it no longer is, and a new hold-out was
-written to replace it before any run against it.
-
-**That new hold-out fails**, and is reported rather than tuned for: asked
-*"Which partner had the most credit notes in 2023?"*, the model counts lines
-rather than distinct documents. Hold-out accuracy is 5 of 6, which is the
-honest figure for behaviour the suite was not written around.
-
-Summaries are written for rankings and breakdowns only - not single values,
-lists of names, or deal lines, where the model was seen to call two lines of
-one deal "the biggest deal" and "the second biggest". Every number in a
-summary must appear in the rows it was given; one draft in the final run
-failed that check and was dropped, leaving the table on its own.
-
-### Adding the planner
-
-The binary classifier was replaced by a planner that reads each question in
-the context of the conversation. The suite grew from 34 to 52 cases to measure
-what that adds: six follow-ups with a scripted earlier exchange (an ordinal,
-a pronoun, "and in 2022?", "what about software?", an end user referred to as
-"the second one", and an unrelated question that must be left alone), four
-data-related chat cases graded on what the reply contains, four off-topic
-requests that must be declined, and six hold-out cases.
-
-The first run scored 88.5%. Four original single questions - including *"How
-many deals were there in 2024?"* - were declined as off-topic: the planner's
-only off-topic example had a year in it. A fifth, *"What item groups are in the
-database?"*, was treated as a definition rather than a listing. And one
-follow-up restated "the second one" as a company name without "end user", so
-the SQL searched partners. Three rules fixed all six without touching any of
-the original prompts, and the next two full runs scored 100% on all 52.
-
-**The hold-out cases passed on their first run**, before and after that fix,
-and were never edited. They are the honest measure here; the follow-up cases
-were written alongside the prompt.
-
-Cost per message rose with the extra call: a data question now takes a median
-of about 3,400 input tokens (from about 2,300), chat about 2,500, a decline
-about 1,400. Median latency rose from 0.5s to 0.9s.
-
-### Moving to the chat API
-
-IBM deprecated the text-generation API the application used, so model calls
-moved to the chat API. The prompts were sent unchanged, each as a single user
-message, to isolate the effect of the API alone. On the same day the
-text-generation baseline scored 100% on the original 33 cases; the chat API
-scored 100% on all 34, identically across two runs at temperature 0, at the
-same median latency and token count. No prompt change was needed, so none was
-made.
-
-One case written for this step failed and was removed rather than tuned for:
-*"What was the average deal value in 2025?"* The model averaged line revenue
-within each deal instead of averaging deal totals. That is a real gap in the
-SQL prompt, present on either API, and it belongs with the next prompt change,
-not with a migration meant to change nothing.
-
-### What this says about the v2.6.0 claim
-
-**The claim was wrong.** Neither model scored 96-97% on this suite under the
-prompts that shipped with that release.
-
-What actually happened at v2.6.0 was a **trade, not a free win**: the migration
-cost **3.6 percentage points of execution accuracy** and bought roughly **8.7x
-lower latency**. That is a defensible decision for an interactive demo, where
-seven seconds per question is its own kind of failure. It is just not the
-decision the changelog describes, and "maintained" was the wrong word.
-
-The trade was made explicitly on 2026-09-01: **keep the faster model**. The
-accuracy gap has since been closed by other means.
-
-### What closed the gap
-
-Not a bigger model - better prompts. The failures had a single root cause worth
-stating plainly:
-
-> The prompt described the **columns** but never the **values inside them**.
-
-The model could not know that `document_type` contains `'Credit'`, or that
-`multi_year_deal_flag_so` is `'Yes'` rather than `'Y'`. It was guessing, and
-guessing plausibly, which is the worst kind of wrong.
-
-| Failing case | Baseline behaviour | Fix |
+| Category | Cases | What it tests |
 |---|---|---|
-| `credit-total` | Searched `item_description LIKE '%credit%'` | Documented `document_type` values |
-| `multi-year-deals` | Guessed `'Y'`; both models did | Documented the flag values |
+| aggregate | 12 | Totals, counts and averages, including deal values |
+| filter | 7 | Questions narrowed by partner, period, product or flag, and breakdowns |
+| ranking | 5 | Top-N questions, including deals ranked by total value |
+| existence | 5 | "Is there a partner called...", answered with matching names |
+| listing | 3 | Distinct values of a column |
+| followup | 6 | Questions that only make sense after an earlier exchange |
+| conversation | 3 | Greetings, thanks and "what can you do", answered without a query |
+| chat | 4 | Explanations of answers, SQL and terms |
+| decline | 4 | Off-topic requests |
+| multipart | 2 | Two questions in one message, graded part by part |
+| clarify | 2 | Messages that must be met with a clarifying question |
+| holdout | 8 | Written once, run, never tuned against |
+
+Conversation cases carry a scripted earlier exchange, so a follow-up case tests
+the follow-up rather than a re-run of the first answer. Every case that should
+be answered directly also counts as a must-not-clarify case: a clear question
+met with a question fails.
+
+## Current result
+
+`mistral-small-3-1-24b-instruct-2503` for every step, with planner v2, SQL
+generator v4, chat v3, retry v1 and summary v1:
+
+| Metric | Result |
+|---|---|
+| Overall | 98.4% (60 of 61) |
+| Execution accuracy, data questions | 97.6% |
+| First attempt only, before the retry | 95.1% |
+| Routing | 100% |
+| Interpretation | 100% |
+| Valid SQL | 100% |
+| Hold-out | 87.5% (7 of 8) |
+| Median latency | 0.9s |
+
+The one failure is a hold-out. Asked *"Which partner had the most credit notes
+in 2023?"*, the model counts lines instead of distinct documents. It stays
+unfixed so the hold-outs remain a fair measure. A fix would need new hold-out
+cases written first.
+
+## What the score means
+
+A high score on a suite means it has stopped finding faults. It does not mean
+Archer is accurate on any question. Three limits apply:
+
+1. The same person wrote the cases and fixed the failures, and a suite you
+   tune against gradually becomes a training set. The hold-outs are the
+   check on that.
+2. The dataset is synthetic and clean. Real data has nulls, inconsistent
+   spellings and duplicate entities.
+3. Most questions are well formed. Real users ask ambiguous and truncated ones.
+
+## Choosing the model
+
+Earlier in the project the model moved from `llama-3-3-70b-instruct` to the
+smaller `mistral-small-3-1-24b-instruct-2503`, and a changelog said accuracy
+was maintained at 96-97%. No suite existed then, and when one was built
+neither model reached that figure:
+
+| Model | SQL prompt | Execution accuracy | Median latency |
+|---|---|---|---|
+| `llama-3-3-70b-instruct` | v2 | 92.9% | 7.25s |
+| `mistral-small-3-1-24b` | v2 | 89.3% | 0.83s |
+| `mistral-small-3-1-24b` | v3 | 100% | 0.50s |
+
+The move had traded 3.6 points of accuracy for about 8.7 times lower latency.
+For an interactive demo that was the right trade, and Mistral Small was kept.
+
+The gap closed through the prompt. It described the columns but not the values
+inside them, so the model could not know that `document_type` holds `'Credit'`
+or that a flag is `'Yes'` and not `'Y'`. Both models made the same `'Y'`
+mistake, which pointed at the prompt rather than the model:
+
+| Failing case | Behaviour | Fix |
+|---|---|---|
+| `credit-total` | Searched `item_description LIKE '%credit%'` | Listed the `document_type` values |
+| `multi-year-deals` | Used `'Y'` | Listed the flag values |
 | `revenue-for-named-customer` | Filtered `end_user_company_name` | Rule: an unqualified company name means `customer_name` |
-| `top-3-end-users` | Failed on llama only | Fixed by the same changes |
+| `top-3-end-users` | Failed on Llama only | Fixed by the same changes |
 
-Adding a `COLUMN VALUES` section and one disambiguation rule took the faster,
-smaller, cheaper model from 89.3% to 100% - past the larger model it replaced.
+Each step can use a different model through `WATSONX_MODEL_ID_<STEP>`. Mistral
+Small stays on every step until a larger model fixes at least two cases with no
+regressions.
 
-## Honesty about the score
+## Results history
 
-**A high score on 61 cases is not "accurate".** It means the suite has stopped
-finding faults, which is a weaker statement and a normal place to be. The
-hold-out cases are the partial answer to that: written once, never tuned
-against, and reported when they fail, as one does.
+Each row is a full run on the same generated dataset. The suite grew as
+features were added.
 
-Three caveats belong with that number:
+| Change | Cases | Overall | Hold-out | Median latency |
+|---|---|---|---|---|
+| Column values in the SQL prompt (v3) | 33 | 100% | - | 0.50s |
+| Chat API | 34 | 100% | - | 0.50s |
+| Planner for follow-ups, chat and declines | 52 | 100% | 6 of 6 | 0.89s |
+| Self-correction and summaries | 55 | 98.2% | 5 of 6 | 0.95s |
+| Multi-part messages and clarifying questions | 61 | 98.4% | 7 of 8 | 0.97s |
 
-1. **The suite is small**, and every case was written by the same person who
-   then fixed the failures. An eval you tune against gradually becomes a
-   training set. The honest reading is "no known failures", not "no failures".
-2. **The dataset is synthetic and fixed.** Real data has nulls in awkward
-   places, inconsistent spellings and duplicate entities. None of that is here.
-3. **The questions are well-formed.** Real users ask ambiguous, truncated and
-   contradictory questions. A handful of cases now are - follow-ups that
-   only make sense in context, clarifying questions - but most are not.
-
-The right next step is not celebrating the number, it is adding cases that
-break it.
-
-## An episode worth recording
-
-Moving the prompts out of Python and into files looked like a pure refactor.
-The suite went from **89.3% to 10.7%**, with almost every case reporting "no
-SQL produced".
-
-The cause was one character. The prompt loader called `.strip()`, which removed
-the trailing newline after the user's question - the newline that tells the
-model to start a new line, with SQL on it. Without it the model carried on
-writing the question.
-
-**All 101 unit tests passed throughout.** Nothing about the application was
-broken in a way that any test could see; the prompt was still a string, the
-route still returned 200, and the answer was still well-formed prose. Only an
-eval that ran real questions against a real model could catch it.
-
-That is the argument for having them.
+The JSON record of each run is in [`evals/results/`](../evals/results), with
+the model, every prompt version, and tokens per case.
 
 ## Running the suite
 
 ```bash
 python evals/run_evals.py                                    # current model
 python evals/run_evals.py --model meta-llama/llama-3-3-70b-instruct
-python evals/run_evals.py --output evals/results/run.json    # full record
+python evals/run_evals.py --output evals/results/run.json    # keep the full record
 python evals/run_evals.py --only credit-total                # one case
+python evals/run_evals.py --no-retry --no-summaries          # measure what each adds
 ```
 
-The suite runs the application's own code: models come from `create_llm` and
-generated SQL executes through `run_select`, so what it measures is what the
-demo runs. Each results file records the model, the version of every prompt,
-and input and output tokens per case.
+It needs `IBM_API_KEY` and `PROJECT_ID` in `.env`, a built dataset
+(`python scripts/generate_dataset.py`), and `DEMO_DAILY_QUESTION_LIMIT=0` so
+the daily ceiling doesn't stop it.
 
-Requires `IBM_API_KEY` and `PROJECT_ID`, and a built dataset (`python
-scripts/generate_dataset.py`). Set `DEMO_DAILY_QUESTION_LIMIT=0` to run
-unmetered.
+The suite calls the same `run_turn()` and `run_select()` as the application, so
+it measures what the demo runs. It is not in CI because it makes real model
+calls and needs live credentials. Run it before and after any change to a
+prompt or a model.
 
-The suite is **not** wired into CI. It costs real model calls on every run and
-needs live credentials, which is the wrong thing to put on every pull request.
-It is run deliberately, before and after any change to a prompt or a model, and
-the results are recorded here.
-
-## Cost per run
-
-Measured against the live prompts:
-
-| Prompt | Input tokens |
-|---|---|
-| Classifier (retired) | 228 |
-| SQL generator | 2,013 |
-| Conversational (v2) | 302 |
-
-A data question costs roughly **2,300 tokens**, almost all of it the SQL
-generator's few-shot examples. The suite now records usage per case: on the
-chat API the median data question is **2,247 input tokens**, and a full
-34-case run is about 66,000 tokens in and 1,000 out.
-
-In money, measured against the actual bill rather than estimated: **89 Resource
-Units - roughly 89,000 tokens - cost £0.01**. Before the conversational
-features that put a question at about **£0.00026**. With them, measured by the
-suite:
-
-| Message | Input tokens (median) | Cost |
-|---|---|---|
-| Data question | about 3,500 | about £0.0004 |
-| ... with a written summary | about 3,800 | about £0.0004 |
-| ... with a corrected query | about 5,700 | about £0.0006 |
-| Data-related chat | about 2,500 | about £0.0003 |
-| Off-topic, declined | about 1,400 | about £0.00016 |
-
-A full 55-case run is about 180,000 tokens, roughly 2p.
-
-Two things follow from that. The daily ceiling of 200 messages caps the demo
-at roughly **8p a day** in typical use and about 15p at worst, which is why an approximate
-per-process counter is an entirely adequate control. And the cost is so low
-that the 88% concentration in the few-shot examples is not worth optimising -
-it would be engineering effort spent to save pennies, and the examples are what
-encode the deal-versus-line distinction the system exists to get right.
+A full run is about 230,000 input tokens, roughly 3p. What each kind of
+message costs is in [infrastructure](../infrastructure/README.md#what-it-costs).

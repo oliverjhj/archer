@@ -10,14 +10,9 @@ from langchain_ibm import ChatWatsonx
 DEFAULT_MODEL_ID = "mistralai/mistral-small-3-1-24b-instruct-2503"
 DEFAULT_URL = "https://eu-gb.ml.cloud.ibm.com"
 
-# Token budgets per task. These used to be a single shared value of 200, which
-# was wrong in both directions at once:
-#
-#   routing needed a single token and was allocated 200
-#   the SQL generator emits queries that can run past 200 and be truncated
-#
-# Sizing them separately costs nothing, because the limit is a ceiling rather
-# than an allocation, and removes both problems.
+# Output token ceilings per task. Each is sized to the longest reply that task
+# should produce, so a long query is never cut short. A ceiling costs nothing
+# unless it is used.
 _MAX_TOKENS = {
     "planner": 300,
     "sql": 400,
