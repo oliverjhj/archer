@@ -126,6 +126,18 @@
 
             render();
         })();
+
+        // Carry a link to a page of the app, such as /#/how-it-was-built,
+        // through sign-in. The browser never sends the fragment to the
+        // server, but it keeps a POST's fragment across the redirect that
+        // follows, so adding it to the form's action lands the visitor on
+        // the page they were sent.
+        (function () {
+            var form = document.querySelector('form[action="/login"]');
+            if (form && window.location.hash.indexOf('#/') === 0) {
+                form.setAttribute('action', '/login' + window.location.hash);
+            }
+        })();
     </script>
 </body>
 </html>

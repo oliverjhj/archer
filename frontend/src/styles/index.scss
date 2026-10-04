@@ -53,13 +53,8 @@ body {
 }
 
 // The application fills the viewport and the answer list scrolls inside it,
-// rather than the page growing and the ask form floating over the content.
-//
-// The previous version relied on a sticky ask form over a page-height
-// document. Once an answer grew past the fold - which a results table plus
-// the SQL block does immediately - the end of the answer sat underneath the
-// form and could not be reached. The generated SQL, which is the whole point
-// of showing it, was the part that disappeared.
+// so the ask form stays below the answers and the end of a long answer, with
+// its SQL, can always be scrolled into view.
 .archer-content {
   margin-left: 16rem;
   height: calc(100vh - 3rem);
@@ -331,6 +326,212 @@ body {
   padding-top: 1rem;
   border-top: 1px solid var(--cds-border-subtle);
   font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+}
+
+// --- Pages: How it was built, Make your own --------------------------------
+
+// The content area hides overflow so the Ask page can scroll its answer list
+// alone. A page scrolls as a whole instead.
+.archer-page {
+  height: 100%;
+  overflow-y: auto;
+}
+
+// Wide enough for three cards side by side; prose inside it is capped at a
+// readable line length.
+.archer-page__body {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+  line-height: 1.6;
+
+  p,
+  ol,
+  ul {
+    max-width: 75ch;
+  }
+
+  p {
+    margin: 0 0 1rem;
+  }
+}
+
+.archer-page__eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cds-text-secondary);
+}
+
+.archer-page__title {
+  margin: 0 0 1rem;
+  font-size: 2rem;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.archer-page__lead {
+  font-size: 1.125rem;
+  color: var(--cds-text-primary);
+}
+
+.archer-page__section {
+  margin-top: 2.5rem;
+}
+
+.archer-page__heading {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.archer-page__steps,
+.archer-page__detail {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+
+  li {
+    margin-bottom: 0.5rem;
+  }
+}
+
+.archer-page__steps {
+  list-style: decimal;
+}
+
+.archer-page__detail {
+  list-style: disc;
+  color: var(--cds-text-secondary);
+}
+
+// Three side by side on a wide screen, stacking as the window narrows.
+.archer-page__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.archer-page__card {
+  height: 100%;
+}
+
+.archer-page__card-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.archer-page__card-what {
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary);
+}
+
+.archer-page__card-facts {
+  margin: 0;
+  font-size: 0.875rem;
+
+  > div {
+    margin-top: 0.75rem;
+  }
+
+  dt {
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--cds-text-secondary);
+  }
+
+  dd {
+    margin: 0.125rem 0 0;
+  }
+}
+
+// Two by two, so four figures never split three and one.
+.archer-page__figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+
+  > div {
+    padding: 1rem;
+    border-left: 2px solid var(--cds-border-interactive);
+    background: var(--cds-layer);
+  }
+
+  dt {
+    font-size: 1.5rem;
+    line-height: 1.3;
+  }
+
+  dd {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--cds-text-secondary);
+  }
+}
+
+@media (max-width: 42rem) {
+  .archer-page__figures {
+    grid-template-columns: 1fr;
+  }
+}
+
+// The steps of Make your own, numbered down a line on the left.
+.archer-page__journey {
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+
+  > li {
+    position: relative;
+    margin: 0;
+    padding: 0 0 1.5rem 3rem;
+    counter-increment: step;
+    border-left: 1px solid var(--cds-border-subtle);
+    margin-left: 1rem;
+
+    &:last-child {
+      border-left-color: transparent;
+    }
+
+    &::before {
+      content: counter(step);
+      position: absolute;
+      left: -1rem;
+      top: 0;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+      background: var(--cds-layer);
+      border: 1px solid var(--cds-border-interactive);
+    }
+  }
+}
+
+.archer-page__step-title {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+// Full width, so its rule lines up with the cards and figures above it.
+.archer-page__body .archer-page__note {
+  max-width: none;
+}
+
+.archer-page__note {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--cds-border-subtle);
+  font-size: 0.875rem;
   color: var(--cds-text-secondary);
 }
 

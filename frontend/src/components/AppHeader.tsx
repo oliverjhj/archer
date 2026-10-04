@@ -21,7 +21,7 @@ export function AppHeader({ theme, onToggleTheme, onClear }: AppHeaderProps) {
   return (
     <Header aria-label="Archer">
       <SkipToContent />
-      <HeaderName href="#" prefix="">
+      <HeaderName href="#/" prefix="">
         Archer
       </HeaderName>
       <HeaderGlobalBar>
