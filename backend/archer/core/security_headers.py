@@ -33,6 +33,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         # Permissions Policy (formerly Feature-Policy)
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        
+
+        # The login page's stylesheet keeps the same URL across deploys, so
+        # browsers must check for a newer one each time instead of reusing a
+        # cached copy. A matching ETag still makes that check cheap. The React
+        # app's files under /assets have content hashes in their names and
+        # need no such header.
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+
         return response
 

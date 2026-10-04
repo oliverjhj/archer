@@ -31,6 +31,7 @@
   --accent-text: #ffffff;
   --error-surface: #3d1416;
   --error-text: #ff8389;
+  --error-border: #fa4d56;
   --focus: #ffffff;
 
   --radius: 4px;
@@ -52,6 +53,7 @@
   --accent-text: #ffffff;
   --error-surface: #fff1f1;
   --error-text: #da1e28;
+  --error-border: #da1e28;
   --focus: #0f62fe;
 }
 
@@ -203,14 +205,17 @@ body {
 
 /* --- Error and footer --------------------------------------------------- */
 
+/* An inline alert in the Carbon style: a coloured bar on the left, readable
+   text on a tinted surface, in both themes. */
 .login-error {
-  text-align: center;
-  color: var(--error-text);
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--error-border);
+  border-radius: 0 var(--radius) var(--radius) 0;
   background: var(--error-surface);
-  border-radius: var(--radius);
+  color: var(--text-primary);
   font-size: 0.875rem;
-  margin-top: 1rem;
-  padding: 0.75rem;
+  line-height: 1.4;
 }
 
 .login-footer {

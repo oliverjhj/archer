@@ -87,11 +87,17 @@ async def do_login(request: Request, response: Response, username: str = Form(..
                     f'{csrf_input}\n                <button type="submit" class="login-btn">'
                 )
                 
-                # Add error message at bottom (where footer was)
-                error_msg = '<div class="login-error" style="text-align: center; color: #DC2626; font-size: 0.875rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #E2E8F0;">Invalid username or password</div>'
-                target_tag = '</form>'
+                # The error goes above the fields, where it is read before
+                # the visitor types again. Styled by .login-error in the
+                # login stylesheet, so it follows the page's theme.
+                error_msg = (
+                    '<div class="login-error" role="alert">'
+                    'Incorrect username or password. Please try again.'
+                    '</div>'
+                )
+                target_tag = '<form action="/login" method="POST">'
                 if target_tag in html:
-                    html = html.replace(target_tag, target_tag + '\n            ' + error_msg)
+                    html = html.replace(target_tag, target_tag + '\n                ' + error_msg)
                 
                 # Detect if running locally (HTTP) or in production (HTTPS)
                 is_secure = request.url.scheme == "https"
