@@ -7,9 +7,9 @@ itself, on a connection that:
 
   - is opened read-only, so no write can succeed even if every other check
     were removed;
-  - has an authorizer that permits reading and nothing else - no PRAGMA, no
-    ATTACH, no load_extension, and no SQLite internal tables such as
-    sqlite_master, which leaves sales_data as the only table there is;
+  - has an authorizer that permits reading the one queryable table and
+    nothing else: no other table or view, no SQLite internal tables such as
+    sqlite_master, no PRAGMA, no ATTACH and no load_extension;
   - runs one statement only, which Python's sqlite3 enforces by refusing a
     string that contains a second;
   - has a deadline, so a runaway query (a cross join, a recursive CTE with no
@@ -27,9 +27,8 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
-from .database import database_path
+from .database import TABLE_NAME, database_path
 
-TABLE = "sales_data"
 DEFAULT_MAX_ROWS = 100
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -42,7 +41,7 @@ _DENIED_FUNCTIONS = {"load_extension"}
 
 
 class QueryBlocked(sqlite3.DatabaseError):
-    """The query tried to do something other than read sales_data."""
+    """The query tried to do something other than read the queryable table."""
 
 
 class QueryTimeout(sqlite3.OperationalError):
@@ -56,18 +55,35 @@ class QueryResult:
     truncated: bool
 
 
-def _authorizer(action, arg1, arg2, _db_name, _source):
-    if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_RECURSIVE):
-        return sqlite3.SQLITE_OK
-    if action == sqlite3.SQLITE_READ:
-        # The database holds sales_data and SQLite's own sqlite_* tables, so
-        # refusing the latter leaves sales_data as the only real table to
-        # read. Named by exclusion because a recursive CTE reads itself under
-        # its own name, and those names are the model's to choose.
-        return sqlite3.SQLITE_DENY if (arg1 or "").lower().startswith("sqlite_") else sqlite3.SQLITE_OK
-    if action == sqlite3.SQLITE_FUNCTION:
-        return sqlite3.SQLITE_DENY if (arg2 or "").lower() in _DENIED_FUNCTIONS else sqlite3.SQLITE_OK
-    return sqlite3.SQLITE_DENY
+def _make_authorizer(other_tables: frozenset[str]):
+    """
+    Build the authorizer for one connection.
+
+    Reads are refused by name: SQLite's own sqlite_* tables, and every other
+    table or view in the file. An allow-list of TABLE_NAME alone would also
+    refuse common table expressions, which SQLite reports as reads under names
+    the model chooses.
+    """
+
+    def _authorizer(action, arg1, arg2, _db_name, _source):
+        if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_RECURSIVE):
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_READ:
+            name = (arg1 or "").lower()
+            if name.startswith("sqlite_") or name in other_tables:
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_FUNCTION:
+            return sqlite3.SQLITE_DENY if (arg2 or "").lower() in _DENIED_FUNCTIONS else sqlite3.SQLITE_OK
+        return sqlite3.SQLITE_DENY
+
+    return _authorizer
+
+
+def _other_tables(conn: sqlite3.Connection) -> frozenset[str]:
+    """Every table and view in the file except the queryable one, lower-cased."""
+    names = conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+    return frozenset(row[0].lower() for row in names) - {TABLE_NAME.lower()}
 
 
 def run_select(
@@ -78,7 +94,7 @@ def run_select(
     db_path: str | None = None,
 ) -> QueryResult:
     """
-    Execute one read-only SELECT (or WITH ... SELECT) against sales_data.
+    Execute one read-only SELECT (or WITH ... SELECT) against the queryable table.
 
     Raises QueryBlocked when the query is refused, QueryTimeout when it runs
     past the deadline, and sqlite3.Error for anything else SQLite rejects,
@@ -90,7 +106,8 @@ def run_select(
 
     conn = sqlite3.connect(f"file:{db_path or database_path()}?mode=ro", uri=True)
     try:
-        conn.set_authorizer(_authorizer)
+        # Listed before the authorizer is installed, which refuses sqlite_master.
+        conn.set_authorizer(_make_authorizer(_other_tables(conn)))
 
         deadline = time.monotonic() + timeout_seconds
         timed_out = False
@@ -112,7 +129,7 @@ def run_select(
                 raise QueryTimeout(f"The query took longer than {timeout_seconds:g}s.") from exc
             message = str(exc).lower()
             if "not authorized" in message or "prohibited" in message:
-                raise QueryBlocked("The query was refused: it may only read sales_data.") from exc
+                raise QueryBlocked(f"The query was refused: it may only read {TABLE_NAME}.") from exc
             raise
 
         columns = [description[0] for description in cursor.description or []]

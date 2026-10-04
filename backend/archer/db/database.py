@@ -8,6 +8,10 @@ from functools import lru_cache
 # archer.api.ask resolves when it opens a read-only connection.
 DB_FILENAME = os.getenv("DB_FILE_NAME", "sales.db").strip() or "sales.db"
 
+# The one table generated SQL may read. Everything that names the table - the
+# startup check, the schema, the date range and the query authorizer - uses this.
+TABLE_NAME = "sales_data"
+
 
 def database_path() -> str:
     """Absolute path to the SQLite database."""
@@ -18,14 +22,8 @@ def verify_database() -> bool:
     """
     Verify the bundled SQLite database is present and usable.
 
-    The dataset is static, synthetic and about 45MB, so it is baked into the
-    container image at build time rather than fetched at startup. That removes
-    a network call, a set of credentials and an entire class of startup
-    failure from the critical path, and it means a cold start is not paying
-    for a 45MB download - which matters because the deployment scales to zero.
-
-    This replaces the previous download-from-object-storage step. The contract
-    with the application is unchanged: return True when the database is ready,
+    The dataset is static and baked into the container image at build time,
+    so a cold start needs no network call or credentials to reach it. Returns
     False when the application must not start.
 
     Returns:
@@ -54,11 +52,13 @@ def verify_database() -> bool:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='sales_data'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (TABLE_NAME,),
             )
             if cursor.fetchone() is None:
                 logging.critical(
-                    "Database validation failed: sales_data table not found in %s",
+                    "Database validation failed: %s table not found in %s",
+                    TABLE_NAME,
                     local_db_path,
                 )
                 return False
@@ -78,7 +78,7 @@ def verify_database() -> bool:
 
 def schema_columns() -> tuple[str, ...]:
     """
-    The column names of sales_data, in table order.
+    The column names of the queryable table, in table order.
 
     Read on its own connection, because the connection that runs generated SQL
     refuses PRAGMA by design. Not cached: it takes well under a millisecond,
@@ -86,7 +86,7 @@ def schema_columns() -> tuple[str, ...]:
     """
     conn = sqlite3.connect(f"file:{database_path()}?mode=ro", uri=True)
     try:
-        return tuple(row[1] for row in conn.execute("PRAGMA table_info(sales_data)"))
+        return tuple(row[1] for row in conn.execute(f"PRAGMA table_info({TABLE_NAME})"))
     finally:
         conn.close()
 
@@ -96,10 +96,8 @@ def dataset_date_range() -> tuple[str, str]:
     """
     The first and last document date in the dataset.
 
-    The conversational prompt tells users what period it can answer for. That
-    used to be a hardcoded string, which is the kind of detail that is right
-    on the day it is written and quietly wrong forever after. Reading it from
-    the data means it cannot drift.
+    The prompts tell the model and the user what period the data covers.
+    Reading it from the data means it cannot drift.
 
     Cached: the dataset is read-only and baked into the image, so this is
     answered once per process. Falls back to empty strings rather than raising,
@@ -109,7 +107,7 @@ def dataset_date_range() -> tuple[str, str]:
         conn = sqlite3.connect(f"file:{database_path()}?mode=ro", uri=True)
         try:
             row = conn.execute(
-                "SELECT MIN(document_date), MAX(document_date) FROM sales_data"
+                f"SELECT MIN(document_date), MAX(document_date) FROM {TABLE_NAME}"
             ).fetchone()
         finally:
             conn.close()
