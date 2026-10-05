@@ -523,12 +523,14 @@ body {
 }
 
 // Full width, so its rule lines up with the cards and figures above it.
+// Scoped to the body so it outranks `.archer-page__body p`, which would
+// otherwise reset the top margin and sit the rule against the content above.
 .archer-page__body .archer-page__note {
   max-width: none;
+  margin-top: 2.5rem;
 }
 
 .archer-page__note {
-  margin-top: 2.5rem;
   padding-top: 1rem;
   border-top: 1px solid var(--cds-border-subtle);
   font-size: 0.875rem;
