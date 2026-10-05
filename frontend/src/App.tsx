@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Content, Theme } from '@carbon/react';
 import { AppHeader } from './components/AppHeader';
 import { AppSideNav } from './components/AppSideNav';
 import { AskInput } from './components/AskInput';
 import { AnswerWorkspace } from './components/AnswerWorkspace';
-import { GuidePanel } from './components/GuidePanel';
 import { HowItWasBuilt } from './components/pages/HowItWasBuilt';
+import { HowToUse } from './components/pages/HowToUse';
 import { MakeYourOwn } from './components/pages/MakeYourOwn';
 import { useAsk } from './hooks/useAsk';
 import { ROUTE_HASH, useHashRoute } from './hooks/useHashRoute';
@@ -14,7 +14,6 @@ import { useTheme } from './hooks/useTheme';
 export function App() {
   const { entries, busy, submit, clear } = useAsk();
   const { theme, toggle } = useTheme();
-  const [guideOpen, setGuideOpen] = useState(false);
   const route = useHashRoute();
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +29,7 @@ export function App() {
   const carbonTheme = theme === 'light' ? 'g10' : 'g100';
 
   // An example question asked from the guide is answered on the Ask page,
-  // whichever page the guide was opened over.
+  // where the conversation is.
   const askFromGuide = (question: string) => {
     window.location.hash = ROUTE_HASH.ask;
     submit(question);
@@ -41,7 +40,7 @@ export function App() {
   return (
     <Theme theme={carbonTheme} className="archer-theme">
       <AppHeader theme={theme} onToggleTheme={toggle} onClear={clear} />
-      <AppSideNav route={route} onOpenGuide={() => setGuideOpen(true)} />
+      <AppSideNav route={route} />
       <Content id="main-content" className="archer-content">
         {route === 'ask' ? (
           <div className="archer-workspace">
@@ -50,16 +49,12 @@ export function App() {
           </div>
         ) : (
           <div className="archer-page" ref={pageRef}>
-            {route === 'how-it-was-built' ? <HowItWasBuilt /> : <MakeYourOwn />}
+            {route === 'how-to-use' && <HowToUse busy={busy} onAsk={askFromGuide} />}
+            {route === 'how-it-was-built' && <HowItWasBuilt />}
+            {route === 'make-your-own' && <MakeYourOwn />}
           </div>
         )}
       </Content>
-      <GuidePanel
-        open={guideOpen}
-        busy={busy}
-        onClose={() => setGuideOpen(false)}
-        onAsk={askFromGuide}
-      />
     </Theme>
   );
 }

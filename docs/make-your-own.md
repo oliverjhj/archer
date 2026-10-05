@@ -113,7 +113,7 @@ the table you want to ask about into SQLite first.
     column, which are lists of deal lines. Use your equivalent, or remove it.
 - `frontend/src/lib/examples.ts`: the example questions on the empty screen.
   Use ones your evaluation cases cover.
-- `frontend/src/components/GuidePanel.tsx` and the placeholder in
+- `frontend/src/components/pages/HowToUse.tsx` and the placeholder in
   `AskInput.tsx`: the help text.
 
 **Build it into the image.** The Dockerfile generates the sample dataset at
@@ -244,6 +244,13 @@ application alone.
 - **Change the login.** Set your own `WEB_USERNAME` and `WEB_PASSWORD`, then
   update or remove the demo credentials printed on the login page
   (`backend/templates/login.html`) and in the README.
+- **Remove what describes this project.** Two pages are about the original,
+  not your fork: *How it was built* states its measured results, and *Make
+  your own* invites visitors to fork it. Delete or rewrite them. Each is a file
+  in `frontend/src/components/pages/`, wired in by `AppSideNav.tsx`,
+  `hooks/useHashRoute.ts` and `App.tsx`. Point `REPO_URL` in `AppSideNav.tsx`
+  at your repository, and if you publish your fork, rewrite the README and
+  replace its screenshots in `docs/images/`.
 - **Set a daily ceiling.** IBM Cloud spending controls only send emails.
   `DEMO_DAILY_QUESTION_LIMIT` is what stops spending. With two instances the
   real ceiling is twice the setting.
