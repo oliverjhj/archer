@@ -321,12 +321,9 @@ body {
   }
 }
 
-.archer-guide__note {
-  margin: 1.75rem 0 0;
-  padding-top: 1rem;
-  border-top: 1px solid var(--cds-border-subtle);
-  font-size: 0.8125rem;
-  color: var(--cds-text-secondary);
+// A paragraph that follows a list needs space above it; the list sets none.
+.archer-guide__after-list {
+  margin-top: 0.75rem;
 }
 
 // --- Pages: How it was built, Make your own --------------------------------

@@ -133,12 +133,16 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
           <strong>Interpreted as</strong>. Clearing the conversation or
           refreshing the page starts afresh; nothing is saved.
         </p>
+
+        <h4 className="archer-guide__heading">More than one question</h4>
         <p className="archer-guide__text">
           You can ask up to three things at once - <em>"revenue in 2023, and
           what does IBM SOFT mean?"</em> - and each is answered in turn. If a
           question cannot be answered without guessing, Archer asks what you
           meant and offers answers you can click.
         </p>
+
+        <h4 className="archer-guide__heading">What it won't answer</h4>
         <p className="archer-guide__text">
           It answers questions about this data and the answers it has given.
           Anything else - general knowledge, writing, other topics - it will
@@ -154,6 +158,10 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
             </div>
           ))}
         </dl>
+        <p className="archer-guide__text archer-guide__after-list">
+          A deal can span several lines, so counting deals is not the same as
+          counting lines. Ask for whichever you mean.
+        </p>
 
         {!schema && !failed && (
           <InlineLoading description="Loading the dataset description..." status="active" />
@@ -197,9 +205,11 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
             <p className="archer-guide__text">
               Name any of these in your question to include it, for example{' '}
               <em>"Show the last 5 deals with their vendor name and contract end date"</em>.
+              To see every column at once, ask for all of them, for example{' '}
+              <em>"Show the last 3 deals with all columns"</em>.
             </p>
             <Accordion className="archer-guide__more">
-              <AccordionItem title={`Show all ${rest.length} columns`}>
+              <AccordionItem title={`List the ${rest.length} other columns`}>
                 <ColumnList columns={rest} />
               </AccordionItem>
             </Accordion>
@@ -220,11 +230,6 @@ export function GuidePanel({ open, busy, onClose, onAsk }: GuidePanelProps) {
                 </dl>
               </>
             )}
-
-            <p className="archer-guide__note">
-              A deal can span several lines, so counting deals is not the same as
-              counting lines. Ask for whichever you mean.
-            </p>
           </>
         )}
       </div>
