@@ -256,12 +256,9 @@ body {
   }
 }
 
-// --- How to use guide ------------------------------------------------------
+// --- How to use page -------------------------------------------------------
 
-.archer-guide__intro {
-  margin: 0 0 0.5rem;
-}
-
+// Small headings inside a page section, below the section's own heading.
 .archer-guide__heading {
   margin: 1.75rem 0 0.5rem;
   font-size: 0.75rem;
@@ -270,10 +267,8 @@ body {
   color: var(--cds-text-secondary);
 }
 
-.archer-guide__text {
-  margin: 0 0 0.75rem;
-  font-size: 0.875rem;
-  color: var(--cds-text-secondary);
+.archer-page__heading + .archer-guide__heading {
+  margin-top: 1rem;
 }
 
 // Name on the left, meaning on the right, so a reader can scan down the
@@ -322,7 +317,8 @@ body {
 }
 
 // A paragraph that follows a list needs space above it; the list sets none.
-.archer-guide__after-list {
+// Scoped to the body so it outranks `.archer-page__body p`.
+.archer-page__body .archer-guide__after-list {
   margin-top: 0.75rem;
 }
 

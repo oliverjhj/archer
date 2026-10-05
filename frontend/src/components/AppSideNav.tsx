@@ -1,4 +1,3 @@
-import type { MouseEvent } from 'react';
 import {
   SideNav,
   SideNavDivider,
@@ -12,14 +11,13 @@ export const REPO_URL = 'https://github.com/oliverjhj/archer';
 
 interface AppSideNavProps {
   route: Route;
-  onOpenGuide: () => void;
 }
 
 // Primary side navigation (IBM Carbon UI Shell).
 //
 // Every item here does something: a link that goes nowhere makes the whole
 // interface read as a mockup.
-export function AppSideNav({ route, onOpenGuide }: AppSideNavProps) {
+export function AppSideNav({ route }: AppSideNavProps) {
   return (
     <SideNav
       aria-label="Primary navigation"
@@ -33,11 +31,8 @@ export function AppSideNav({ route, onOpenGuide }: AppSideNavProps) {
         </SideNavLink>
         <SideNavLink
           renderIcon={Information}
-          href="#"
-          onClick={(event: MouseEvent) => {
-            event.preventDefault();
-            onOpenGuide();
-          }}
+          href={ROUTE_HASH['how-to-use']}
+          isActive={route === 'how-to-use'}
         >
           How to use Archer
         </SideNavLink>

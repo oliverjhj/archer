@@ -113,7 +113,7 @@ the table you want to ask about into SQLite first.
     column, which are lists of deal lines. Use your equivalent, or remove it.
 - `frontend/src/lib/examples.ts`: the example questions on the empty screen.
   Use ones your evaluation cases cover.
-- `frontend/src/components/GuidePanel.tsx` and the placeholder in
+- `frontend/src/components/pages/HowToUse.tsx` and the placeholder in
   `AskInput.tsx`: the help text.
 
 **Build it into the image.** The Dockerfile generates the sample dataset at
