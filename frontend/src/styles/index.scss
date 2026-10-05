@@ -52,6 +52,8 @@ body {
   background: var(--cds-background);
 }
 
+$content-max-width: 110rem;
+
 // The application fills the viewport and the answer list scrolls inside it,
 // so the ask form stays below the answers and the end of a long answer, with
 // its SQL, can always be scrolled into view.
@@ -62,14 +64,14 @@ body {
 }
 
 // Grows with the window so a wide screen is not left with an empty band
-// beside the side navigation. Result tables and SQL use the full width; prose
-// is capped separately below, because a line of text stretched across a large
-// monitor is hard to read.
+// beside the side navigation. The other pages share the same width. Result
+// tables and SQL use the full width; prose is capped separately below,
+// because a line of text stretched across a large monitor is hard to read.
 .archer-workspace {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 110rem;
+  max-width: $content-max-width;
   margin: 0 auto;
   height: 100%;
 }
@@ -331,12 +333,13 @@ body {
   overflow-y: auto;
 }
 
-// Wide enough for three cards side by side; prose inside it is capped at a
+// As wide as the Ask page, with its edges in the same place, so moving
+// between pages does not shift the content. Prose inside it is capped at a
 // readable line length.
 .archer-page__body {
-  max-width: 64rem;
+  max-width: $content-max-width;
   margin: 0 auto;
-  padding: 2rem 1rem 3rem;
+  padding: 2rem 0 3rem;
   line-height: 1.6;
 
   p,
