@@ -335,11 +335,13 @@ $content-max-width: 110rem;
 
 // As wide as the Ask page, with its edges in the same place, so moving
 // between pages does not shift the content. Prose inside it is capped at a
-// readable line length.
+// readable line length. The right padding keeps full-width cards and rules
+// clear of the scrollbar, the same gap as between the side navigation and the
+// text on the left.
 .archer-page__body {
   max-width: $content-max-width;
   margin: 0 auto;
-  padding: 2rem 0 3rem;
+  padding: 2rem 2rem 3rem 0;
   line-height: 1.6;
 
   p,
