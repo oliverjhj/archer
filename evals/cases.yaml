@@ -10,8 +10,8 @@
 #   id            stable identifier, used in reports
 #   question      the natural-language input
 #   route         expected kind of answer: data | chat
-#   expect_kind   overrides route where the answer should be a decline:
-#                 data | chat | decline
+#   expect_kind   overrides route where the answer is another kind:
+#                 data | chat | decline | clarify | mixed
 #   category      grouping for the results table
 #   expected_sql  reference query (data cases only)
 #   ordered       true when row order is part of correctness (top-N questions)
@@ -27,6 +27,12 @@
 #   answer_includes_any       for chat: the reply must contain one of these
 #   holdout                   written once and run, never tuned against; reported
 #                             separately as the honest measure of new behaviour
+#
+# Multi-part cases:
+#   parts         one entry per expected part, in order, each with a kind
+#                 (data | chat) and that kind's fields (expected_sql,
+#                 answer_includes_any). Graded on the number of parts, each
+#                 part's kind, and each part's answer.
 #
 # Names used in questions come from the generated dataset, so they are
 # reproducible: regenerating with the same seed keeps these cases valid.

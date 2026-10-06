@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 460" width="940" height="460" font-family="'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
   <title id="title">Archer request flow</title>
-  <desc id="desc">A question arrives at FastAPI, is claimed against a daily budget, planned in the context of the last three exchanges as a data question, data-related conversation or an off-topic request, restated so it stands on its own, then either converted to SQL and run against a read-only SQLite database, answered conversationally, or declined with a fixed message. Every path calls IBM watsonx.ai.</desc>
+  <desc id="desc">A question arrives at FastAPI, is claimed against a daily budget, planned in the context of the last three exchanges as a data question, data-related conversation, a question needing clarification or an off-topic request, split into up to three parts and restated so each stands on its own, then either converted to SQL and run against a read-only SQLite database, with one corrected attempt if the query fails and a checked one-line summary for rankings, answered conversationally, answered with a clarifying question and options to click, or declined with a fixed message. Every path calls IBM watsonx.ai.</desc>
 
   <!--
     Colours are chosen to read on both light and dark GitHub themes, so the
@@ -40,15 +40,17 @@
   <!-- Planner -->
   <rect class="box" x="398" y="174" width="140" height="86"/>
   <text class="label" x="468" y="199" text-anchor="middle">Planner</text>
-  <text class="sub" x="468" y="218" text-anchor="middle">data, chat, off-topic?</text>
-  <text class="sub" x="468" y="234" text-anchor="middle">resolves follow-ups</text>
-  <text class="sub" x="468" y="250" text-anchor="middle">JSON plan</text>
+  <text class="sub" x="468" y="218" text-anchor="middle">data, chat, clarify</text>
+  <text class="sub" x="468" y="234" text-anchor="middle">or off-topic; up to 3 parts</text>
+  <text class="sub" x="468" y="250" text-anchor="middle">resolves follow-ups</text>
 
   <!-- SQL generator -->
-  <rect class="box" x="588" y="92" width="150" height="72"/>
+  <rect class="box" x="588" y="92" width="150" height="104"/>
   <text class="label" x="663" y="117" text-anchor="middle">SQL generator</text>
   <text class="sub" x="663" y="136" text-anchor="middle">live schema injected</text>
   <text class="sub" x="663" y="152" text-anchor="middle">SELECT-only enforced</text>
+  <text class="sub" x="663" y="168" text-anchor="middle">one corrected retry</text>
+  <text class="sub" x="663" y="184" text-anchor="middle">checked summary</text>
 
   <!-- Chat -->
   <rect class="box" x="588" y="284" width="150" height="60"/>
@@ -83,7 +85,7 @@
 
   <!-- model calls -->
   <path class="edge" d="M 468 260 C 468 380, 520 400, 560 405" stroke-dasharray="4 3"/>
-  <path class="edge" d="M 663 164 C 700 200, 700 340, 690 388" stroke-dasharray="4 3"/>
+  <path class="edge" d="M 663 196 C 700 230, 700 340, 690 388" stroke-dasharray="4 3"/>
   <path class="edge" d="M 663 344 L 663 388" stroke-dasharray="4 3"/>
 
   <!-- Notes -->

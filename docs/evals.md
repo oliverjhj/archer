@@ -62,7 +62,7 @@ generator v4, chat v3, retry v1 and summary v1:
 | Interpretation | 100% |
 | Valid SQL | 100% |
 | Hold-out | 87.5% (7 of 8) |
-| Median latency | 0.9s |
+| Median latency | 0.95s |
 
 The one failure is a hold-out. Asked *"Which partner had the most credit notes
 in 2023?"*, the model counts lines instead of distinct documents. It stays
@@ -121,10 +121,10 @@ features were added.
 | Change | Cases | Overall | Hold-out | Median latency |
 |---|---|---|---|---|
 | Column values in the SQL prompt (v3) | 33 | 100% | - | 0.50s |
-| Chat API | 34 | 100% | - | 0.50s |
+| Chat API | 34 | 100% | - | 0.56s |
 | Planner for follow-ups, chat and declines | 52 | 100% | 6 of 6 | 0.89s |
 | Self-correction and summaries | 55 | 98.2% | 5 of 6 | 0.95s |
-| Multi-part messages and clarifying questions | 61 | 98.4% | 7 of 8 | 0.97s |
+| Multi-part messages and clarifying questions | 61 | 98.4% | 7 of 8 | 0.95s |
 
 The JSON record of each run is in [`evals/results/`](../evals/results), with
 the model, every prompt version, and tokens per case.
@@ -139,9 +139,9 @@ python evals/run_evals.py --only credit-total                # one case
 python evals/run_evals.py --no-retry --no-summaries          # measure what each adds
 ```
 
-It needs `IBM_API_KEY` and `PROJECT_ID` in `.env`, a built dataset
-(`python scripts/generate_dataset.py`), and `DEMO_DAILY_QUESTION_LIMIT=0` so
-the daily ceiling doesn't stop it.
+It needs `IBM_API_KEY` and `PROJECT_ID` in `.env` and a built dataset
+(`python scripts/generate_dataset.py`). The daily ceiling doesn't apply: the
+suite calls the pipeline directly, not through the web routes.
 
 The suite calls the same `run_turn()` and `run_select()` as the application, so
 it measures what the demo runs. It is not in CI because it makes real model

@@ -63,12 +63,12 @@ A conversation carries on from there:
   [security](docs/security.md).
 - A daily message ceiling in the application caps the cost, because IBM Cloud
   spending limits only send notifications.
-- 217 unit tests, four CI jobs, automatic deployment on every merge, a
+- 218 unit tests, four CI jobs, automatic deployment on every merge, a
   non-root multi-stage container, scale-to-zero hosting.
 
 ## How it works
 
-![How a question becomes an answer: FastAPI claims a daily budget, a planner reads the question in the context of the conversation, and either the SQL generator queries a read-only SQLite database, a conversational prompt explains, or an off-topic request is declined](docs/images/architecture.svg)
+![How a question becomes an answer: FastAPI claims a daily budget, a planner reads the question in the context of the conversation and splits it into up to three parts, and either the SQL generator queries a read-only SQLite database, with one corrected attempt and a checked summary, a conversational prompt explains, a clarifying question is asked, or an off-topic request is declined](docs/images/architecture.svg)
 
 The browser sends each question with the last three exchanges. A planner call
 reads it in that context, decides whether it is a data question, conversation
@@ -118,7 +118,7 @@ To build your own version on your own data, see
 python evals/run_evals.py                                          # accuracy, real model calls
 ```
 
-The evaluation suite needs live credentials and costs about 2p a run, so it is
+The evaluation suite needs live credentials and costs about 3p a run, so it is
 run by hand before and after any prompt or model change rather than in CI.
 
 ## Documentation

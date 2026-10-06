@@ -1,6 +1,6 @@
 # Testing
 
-217 unit tests, run in CI on every push and pull request (see [CI](ci.md)).
+218 unit tests, run in CI on every push and pull request (see [CI](ci.md)).
 
 ```bash
 .venv/Scripts/python.exe -m pytest backend/tests/unit -m unit -q
@@ -32,7 +32,7 @@ IBM Cloud, no watsonx and no network.
 | Multi-part and clarify | Mixed and clarify plans parsed; parts answered in order, and one failure doesn't stop the others; a fourth part noted; a clarifying question runs no query and is overruled for a message with nothing to resolve |
 | Pipeline | Scalar, table, empty and refused results as structured parts; a NULL sum shown as empty; a model outage returned as an answer, not a 500 |
 | Prompts | Role markers become chat messages; a marker in user text can't start one; single-pass substitution; front matter never sent |
-| Schema | The column descriptions match the generated schema, and the SQL prompt's default columns match the guide's |
+| Schema | The column descriptions match the generated schema, and the SQL prompt's default columns match those on the How to use Archer page |
 | JWT and CSRF | Payload, expiry, tampering, wrong signing key |
 | Auth routes | `/login` GET and POST, cookie issuance, bad credentials |
 | `/ask` and `/api/ask` | API key handling; missing, malformed, expired and wrongly signed cookies; `/api/ask` rejects the API key; both routes return identical answers |

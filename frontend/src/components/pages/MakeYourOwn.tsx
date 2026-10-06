@@ -28,8 +28,8 @@ const STEPS: Step[] = [
     title: 'Point it at your own data',
     body: 'Archer queries one table in a SQLite database. Export the table you want to ask about, set its name in one place, and describe each column in plain English.',
     detail: [
-      'The descriptions appear in the in-app guide and help the model understand your data.',
-      'A few details tied to the sample sales data, such as the £ sign on revenue, are listed in the guide for you to change.',
+      'The descriptions appear on the How to use Archer page and help the model understand your data.',
+      'A few details tied to the sample sales data, such as the £ sign on revenue, are listed in the full guide on GitHub for you to change.',
     ],
   },
   {

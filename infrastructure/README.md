@@ -69,18 +69,18 @@ Measured with the evaluation suite against the actual bill:
 
 | Message | Input tokens (median) | Cost |
 |---|---|---|
-| Data question | about 3,500 | about £0.0004 |
-| ... with a written summary | about 3,800 | about £0.0004 |
-| ... with a corrected query | about 5,700 | about £0.0006 |
-| Data-related chat | about 2,500 | about £0.0003 |
-| Off-topic, declined | about 1,400 | about £0.00016 |
+| Data question | about 4,000 | about £0.00045 |
+| ... with a written summary | about 4,350 | about £0.0005 |
+| ... with a corrected query | about 6,300 | about £0.0007 |
+| Data-related chat | about 3,050 | about £0.00035 |
+| Off-topic, declined | about 1,950 | about £0.0002 |
 
 Most of a data question's tokens are the SQL generator's worked examples.
 
 The daily ceiling counts messages, and each message is bounded: one planner
 call and, for each of at most three parts, two SQL attempts and one summary. At
-the default 200 messages a day, that caps spending at about 8p a day in typical
-use, and about 35p if every message asked three questions and every query
+the default 200 messages a day, that caps spending at about 9p a day in typical
+use, and about 36p if every message asked three questions and every query
 needed correcting.
 
 ## Free-tier limits

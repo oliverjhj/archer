@@ -43,8 +43,9 @@ scratch in [make your own](make-your-own.md#6-deploy-to-ibm-code-engine).
 
 ## Dependency updates - `dependabot.yml`
 
-Dependabot checks three ecosystems weekly, on Monday mornings, grouping minor
-and patch updates into one pull request each:
+Dependabot checks three ecosystems weekly, on Monday mornings. Python and
+GitHub Actions updates are grouped, minor and patch into one pull request each;
+Docker base images are not grouped:
 
 - Python dependencies in `backend/`.
 - GitHub Actions versions.

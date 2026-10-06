@@ -100,8 +100,9 @@ such as Redis, which isn't worth it at these costs (see
 
 ## Transport and headers
 
-Code Engine terminates TLS. Middleware sets `X-Content-Type-Options`,
-`X-Frame-Options`, `Referrer-Policy` and a `Content-Security-Policy`.
+Code Engine terminates TLS. Middleware sets `Strict-Transport-Security`,
+`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`,
+`Referrer-Policy`, `Permissions-Policy` and a `Content-Security-Policy`.
 
 ## Data
 

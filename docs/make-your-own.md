@@ -94,11 +94,11 @@ the table you want to ask about into SQLite first.
 
 **Describe your columns** in `backend/archer/db/catalogue.py`:
 
-- `COLUMN_DESCRIPTIONS`: one plain-English line per column. The in-app guide
+- `COLUMN_DESCRIPTIONS`: one plain-English line per column. The How to use Archer page
   shows them and the chat prompt's glossary is built from them.
 - `COMMON_COLUMNS`: the columns a plain "show me" question returns. Keep it to
   about eight.
-- `KNOWN_VALUES`: columns with a small fixed set of values, shown in the guide.
+- `KNOWN_VALUES`: columns with a small fixed set of values, shown on the How to use Archer page.
 
 **Update the domain wording in the code:**
 
@@ -114,7 +114,8 @@ the table you want to ask about into SQLite first.
 - `frontend/src/lib/examples.ts`: the example questions on the empty screen.
   Use ones your evaluation cases cover.
 - `frontend/src/components/pages/HowToUse.tsx` and the placeholder in
-  `AskInput.tsx`: the help text.
+  `AskInput.tsx`: the help text, including the page's `VOCABULARY` list,
+  which mirrors rule 2 of the SQL prompt.
 
 **Build it into the image.** The Dockerfile generates the sample dataset at
 build time (`backend/Dockerfile`, the `generate_dataset.py` step). Replace that

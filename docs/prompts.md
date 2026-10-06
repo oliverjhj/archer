@@ -87,7 +87,7 @@ examples. It is told:
 
 1. **Default columns.** Unless the question aggregates, return a fixed set of
    eight readable columns instead of all 37. The same list drives the
-   column highlights in the in-app guide (`backend/archer/db/catalogue.py`),
+   column highlights on the How to use Archer page (`backend/archer/db/catalogue.py`),
    and a test keeps the two in step.
 2. **Vocabulary.** "Partner" is `customer_name`, "hardware" is
    `item_group = 'IBM CCHW'`, and a deal is a `document_number`, not a row.
@@ -148,7 +148,7 @@ single values, lists of names or deal lines.
 `chat.md` answers conversation about the data: what an earlier answer or its
 SQL means, what a column, value or IBM product is, and what Archer can do. It
 gets the conversation and a glossary built from the same column descriptions
-the in-app guide shows, and is told to use only those. Asked for new figures,
+the How to use Archer page shows, and is told to use only those. Asked for new figures,
 it tells the user to ask a question so a query can run.
 
 The answer to "what can you do" is fixed text in the prompt, so the most

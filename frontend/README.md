@@ -15,8 +15,11 @@ with a proxy to the backend.
   data answer. Tabular results render as real tables.
 - Loading, error and empty states. The empty state carries example questions and
   explains the cold start, because the demo scales to zero.
-- A schema reference panel built from the live database: row count, date range,
-  the columns most answers use, and the fixed-value columns.
+- A How to use Archer page: example questions, follow-ups, the words Archer
+  understands, and a description of the data built from the live database (row
+  count, date range, the columns most answers use, and the fixed-value columns).
+- How it was built and Make your own pages, and a link to the source and docs,
+  in the side navigation.
 
 ## Prerequisites
 
@@ -54,8 +57,9 @@ The Docker build runs the same build and copies `dist/` into the image.
 
 Copy `.env.example` to `.env.local` for local overrides. The only variable is
 `VITE_API_BASE_URL`, which should stay empty to use same-origin paths. **Nothing
-secret belongs in a frontend environment file** - the browser never sees the
-backend API key, because `/api/ask` is a server-side proxy that injects it.
+secret belongs in a frontend environment file** - the browser never needs the
+backend API key, because `/api/ask` authenticates with the session cookie.
+`WEBHOOK_SECRET` is only for machine callers of `/ask`.
 
 ## Layout
 

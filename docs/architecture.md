@@ -107,7 +107,7 @@ backend/archer/
 │   ├── ask.py             answer_question() and both entry points
 │   ├── auth_routes.py     /login, CSRF, session cookie
 │   ├── page_routes.py     the app shell, behind the login
-│   └── schema_routes.py   /api/schema for the in-app guide
+│   └── schema_routes.py   /api/schema for the How to use page
 ├── ai/
 │   ├── llm.py             per-step watsonx chat clients
 │   ├── prompts.py         loading prompts/*.md into chat messages
