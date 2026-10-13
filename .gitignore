@@ -47,3 +47,6 @@ build/
 
 # UV package manager
 .uv/
+
+# Bob AI assistant workspace
+.bob/
